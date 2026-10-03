@@ -1,0 +1,13 @@
+{
+	"name": "Quick Mechanic Test Car",
+	"brand": "Quick Mechanic",
+	"description": "Coche de pruebas con datos abiertos para los tests de Quick Mechanic.",
+	"tags": ["rwd", "turbo", "race"],
+	"class": "race",
+	"specs": {
+		"bhp": "195bhp",
+		"torque": "130Nm",
+		"weight": "1050kg",
+		"topspeed": "230km/h"
+	}
+}

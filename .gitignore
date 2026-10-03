@@ -1,0 +1,19 @@
+# Artefactos de PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Copias de seguridad que crea Quick Mechanic
+*.ini.bak
+*.lut.bak
+*.tmp
+
+# Informes del autotest
+informe_selftest.txt
+
+# Archivos locales/temporales
+.freebuff/

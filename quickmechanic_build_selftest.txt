@@ -1,0 +1,19 @@
+Quick Mechanic - autotest
+=========================
+[ok]    Instalacion encontrada: D:\SteamLibrary\steamapps\common\assettocorsa
+[ok]    1573 coches instalados, 452 con carpeta data/ editable
+[ok]    Lectura de volvo_850r_wagon_fk1: limitador 7400 rpm
+[ok]    Curva de potencia: 33 puntos · 320 Nm a 4000 rpm · 231 CV a 6000 rpm
+[ok]    Marchas (RWD): 3.000 = 65 km/h · 1.850 = 106 km/h · 1.330 = 147 km/h · 1.040 = 188 km/h · 0.850 = 230 km/h · 0.700 = 280 km/h
+[ok]    Chasis: muelles 20/16 N/mm · ARB 12000/3180 Nm · frenos 1200 Nm al 65% delante
+        Avisos del diagnostico: 1
+        Coche de prueba: volvo_850r_wagon_fk1 (17 lineas de comentario en engine.ini)
+[ok]    Guardado en copia: drivetrain.ini, engine.ini, power.lut, suspensions.ini
+[ok]    Copia de seguridad .bak creada
+[ok]    Limitador guardado y releido: 7650 rpm
+[ok]    Multiplicador de par x1.10 aplicado (par maximo 352 Nm)
+[ok]    Comentarios intactos tras guardar (17)
+[ok]    El coche original del juego sigue intacto
+[ok]    El multiplicador se aplica sobre la curva del fichero, no se acumula (176 Nm = 0.5 x 352 Nm)
+
+TODO CORRECTO
