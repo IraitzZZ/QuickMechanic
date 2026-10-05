@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QCheckBox, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QVBoxLayout
+from ..qt_i18n import QCheckBox, QLabel, QWidget
 
 from .. import theme, widgets
 from ..car_data import CarData

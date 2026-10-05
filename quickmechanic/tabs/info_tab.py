@@ -6,7 +6,8 @@ lo que Quick Mechanic ha leido del coche.
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QTextBrowser, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QTextBrowser, QVBoxLayout
+from ..qt_i18n import QWidget
 
 from .. import skins, theme
 from ..car_data import CarData

@@ -4,7 +4,8 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QLineEdit, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QVBoxLayout
+from ..qt_i18n import QLineEdit, QWidget
 
 from .. import widgets
 from ..car_data import AdvancedSetting, CarData

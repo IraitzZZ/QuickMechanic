@@ -5,19 +5,13 @@ import math
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox,
-    QFrame,
     QHBoxLayout,
-    QLabel,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
-    QSlider,
     QVBoxLayout,
-    QWidget,
 )
+
+from ..qt_i18n import QCheckBox, QFrame, QLabel, QMessageBox, QPushButton, QScrollArea, QSlider, QWidget
 
 from .. import theme, units, widgets
 from ..car_data import CarData

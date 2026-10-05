@@ -4,7 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout
+from .qt_i18n import QFileDialog, QFrame, QLabel, QPushButton, QWidget
 
 from . import content_manager, theme
 

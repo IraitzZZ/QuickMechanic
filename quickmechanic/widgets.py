@@ -11,9 +11,9 @@ from pathlib import Path
 
 from PyQt6.QtCore import QEvent, QPointF, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import (
-    QDesktopServices,
     QBrush,
     QColor,
+    QDesktopServices,
     QFont,
     QLinearGradient,
     QPainter,
@@ -23,21 +23,13 @@ from PyQt6.QtGui import (
     QPolygonF,
 )
 from PyQt6.QtWidgets import (
-    QComboBox,
-    QDoubleSpinBox,
-    QFrame,
-    QScrollArea,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QSlider,
     QSizePolicy,
-    QSpinBox,
     QVBoxLayout,
-    QWidget,
 )
+
+from .qt_i18n import QComboBox, QDoubleSpinBox, QFrame, QGroupBox, QLabel, QPushButton, QScrollArea, QSlider, QSpinBox, QWidget
 
 from . import skins
 from . import theme

@@ -48,6 +48,41 @@ DEFAULT_TURBO: dict[str, float] = {
 
 DEFAULT_WHEEL_RADIUS = 0.33  # metros: rueda de 17" con neumatico de perfil medio
 
+# Traccion total: AC usa las secciones [AWD] (diferenciales + reparto) y [AWD2]
+# (modelo avanzado con rampa y par maximo del central). Quick Mechanic solo toca
+# las claves que el coche ya trae escritas: nunca inventa secciones ni parametros.
+AWD_SECTIONS = ("AWD", "AWD2")
+AWD_KEYS = (
+    "FRONT_SHARE",
+    "FRONT_DIFF_POWER",
+    "FRONT_DIFF_COAST",
+    "FRONT_DIFF_PRELOAD",
+    "CENTRE_DIFF_POWER",
+    "CENTRE_DIFF_COAST",
+    "CENTRE_DIFF_PRELOAD",
+    "CENTRE_RAMP_TORQUE",
+    "CENTRE_MAX_TORQUE",
+    "REAR_DIFF_POWER",
+    "REAR_DIFF_COAST",
+    "REAR_DIFF_PRELOAD",
+)
+# (minimo, maximo) reales de cada clave segun los valores que traen los coches e Kunos
+AWD_LIMITS: dict[str, tuple[float, float]] = {
+    "FRONT_SHARE": (0.0, 100.0),
+    "FRONT_DIFF_POWER": (0.0, 1.0),
+    "FRONT_DIFF_COAST": (0.0, 1.0),
+    "FRONT_DIFF_PRELOAD": (0.0, 1000.0),
+    "CENTRE_DIFF_POWER": (0.0, 1.0),
+    "CENTRE_DIFF_COAST": (0.0, 1.0),
+    "CENTRE_DIFF_PRELOAD": (0.0, 1000.0),
+    "CENTRE_RAMP_TORQUE": (0.0, 5000.0),
+    "CENTRE_MAX_TORQUE": (0.0, 10000.0),
+    "REAR_DIFF_POWER": (0.0, 1.0),
+    "REAR_DIFF_COAST": (0.0, 1.0),
+    "REAR_DIFF_PRELOAD": (0.0, 1000.0),
+}
+AWD_FRACTION_KEYS = ("DIFF_POWER", "DIFF_COAST")  # se guardan como 0-1 y se editan en %
+
 # Ajustes escalares numéricos existentes que se pueden exponer en el editor avanzado.
 # Se excluyen datos de identificación/flags y setup.ini, que define límites del juego.
 ADVANCED_INI_FILES = (
@@ -418,6 +453,82 @@ class CarData:
         self._set("drivetrain.ini", "DIFFERENTIAL", "POWER", round(float(power), 4))
         self._set("drivetrain.ini", "DIFFERENTIAL", "COAST", round(float(coast), 4))
         self._set("drivetrain.ini", "DIFFERENTIAL", "PRELOAD", round(float(preload), 2))
+
+    # ------------------------------------------------------------- traccion total
+    @property
+    def awd_sections(self) -> tuple[str, ...]:
+        """Secciones [AWD]/[AWD2] que el coche ya declara en drivetrain.ini."""
+        ini = self.ini("drivetrain.ini")
+        return tuple(section for section in AWD_SECTIONS if ini.has_section(section))
+
+    @property
+    def has_awd(self) -> bool:
+        return bool(self.awd_sections)
+
+    @property
+    def awd_mode(self) -> str:
+        """``AWD``, ``AWD2`` (modelo avanzado) o cadena vacia si no es total."""
+        sections = self.awd_sections
+        return sections[-1] if sections else ""
+
+    def awd_value(self, section: str, key: str) -> float | None:
+        """Valor actual o ``None`` si el coche no trae esa clave (no se inventa)."""
+        ini = self.ini("drivetrain.ini")
+        if str(section).upper() not in AWD_SECTIONS or str(key).upper() not in AWD_KEYS:
+            return None
+        if not ini.has(section, key):
+            return None
+        return ini.get_float(section, key, 0.0)
+
+    def awd_values(self) -> dict[tuple[str, str], float]:
+        """{(seccion, clave): valor} de solo lo que existe en este coche."""
+        ini = self.ini("drivetrain.ini")
+        values: dict[tuple[str, str], float] = {}
+        for section in self.awd_sections:
+            for key in AWD_KEYS:
+                if ini.has(section, key):
+                    values[(section, key)] = ini.get_float(section, key, 0.0)
+        return values
+
+    def set_awd_value(self, section: str, key: str, value: float) -> bool:
+        """Escribe un parametro AWD existente; valida clave, rango y valor finito."""
+        section = str(section).upper()
+        key = str(key).upper()
+        if section not in AWD_SECTIONS or key not in AWD_KEYS:
+            return False
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return False
+        minimum, maximum = AWD_LIMITS[key]
+        if not math.isfinite(number) or not minimum <= number <= maximum:
+            return False
+        ini = self.ini("drivetrain.ini")
+        if not ini.has(section, key):
+            return False
+        decimals = 4 if key.endswith(AWD_FRACTION_KEYS) else 2
+        self._set("drivetrain.ini", section, key, round(number, decimals))
+        return True
+
+    def awd_summary(self) -> list[tuple[str, str]]:
+        """[(etiqueta, valor)] con el reparto y los diferenciales del coche."""
+        values = self.awd_values()
+        if not values:
+            return []
+        out: list[tuple[str, str]] = []
+        for section in self.awd_sections:
+            share = values.get((section, "FRONT_SHARE"))
+            if share is not None:
+                out.append(("Reparto delantero", f"{share:.0f}%"))
+            for key in AWD_KEYS:
+                value = values.get((section, key))
+                if value is None or key == "FRONT_SHARE":
+                    continue
+                if key.endswith(AWD_FRACTION_KEYS):
+                    out.append((f"{section} · {key}", f"{value * 100:.0f}%"))
+                else:
+                    out.append((f"{section} · {key}", f"{value:.0f} Nm"))
+        return out
 
     @property
     def clutch_max_torque(self) -> float:
@@ -798,6 +909,8 @@ class CarData:
             "drivetrain.ini": {
                 "GEARS": ("COUNT", "GEAR_R", "FINAL"),
                 "DIFFERENTIAL": ("POWER", "COAST", "PRELOAD"),
+                "AWD": AWD_KEYS,
+                "AWD2": AWD_KEYS,
             },
             "suspensions.ini": {
                 "FRONT": (
@@ -877,6 +990,8 @@ class CarData:
             "drivetrain.ini": {
                 "GEARS": {"COUNT", "GEAR_R", "FINAL"},
                 "DIFFERENTIAL": {"POWER", "COAST", "PRELOAD"},
+                "AWD": set(AWD_KEYS),
+                "AWD2": set(AWD_KEYS),
             },
             "suspensions.ini": {
                 "FRONT": {"SPRING_RATE", "DAMP_BUMP", "DAMP_REBOUND", "BUMP_STOP_RATE", "ROD_LENGTH", "STATIC_CAMBER"},

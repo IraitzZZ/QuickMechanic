@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QGridLayout, QVBoxLayout
+from ..qt_i18n import QLabel, QWidget
 
 from .. import theme, widgets
 from ..ac_scanner import Car

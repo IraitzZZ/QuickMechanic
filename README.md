@@ -6,6 +6,9 @@ chasis con unidades reales (N/mm, N·s/mm, Nm, PSI), editor experto y diagnostic
 La interfaz ya no muestra graficos: las cifras del resumen se identifican como
 calculadas desde los archivos y no como telemetria de pista.
 
+La interfaz esta disponible en **español e ingles** (boton **Idioma**): el idioma
+se guarda en `%APPDATA%\QuickMechanic` y se aplica al reiniciar la app.
+
 La interfaz usa una paleta premium fija de negro grafito, gris tecnico y oro
 satinado, con navegacion lateral animada, splash de carga, guia de bienvenida y
 ayuda contextual. El icono `icono.ico` de la raiz se integra en la ventana,
@@ -53,7 +56,6 @@ Para obtener además el instalador separado `dist\Setup.exe`, instala **Inno Set
 y ejecuta `build_installer.bat` (configurado en [QuickMechanic.iss](QuickMechanic.iss)).
 El instalador es por usuario, reemplaza los archivos de aplicación al actualizar y no
 instala ni elimina `%APPDATA%\QuickMechanic`, donde se guardan perfiles y preferencias.
-No incluye autoupdater: para actualizar, descarga y ejecuta el nuevo `Setup.exe`.
 
 Si `icono.ico` esta en la raiz, se usa como icono de Windows y se incluye dentro del
 archivo ejecutable; si no, la aplicacion conserva su emblema QM de reserva. El .exe
@@ -77,6 +79,7 @@ dist\QuickMechanic.exe --selftest --report informe.txt
 | **Content Manager** | Detecta/abre el ejecutable configurado y permite resincronizar `content/cars` tras instalar o extraer contenido |
 | **Swaps** | Previsualiza y transfiere motor (engine.ini + curvas enlazadas), sonido (sfx.ini + bancos/GUIDs declarados), transmisión compatible y geometría básica de suspensión. El sonido puede aplicarse a coches que solo tengan `data.acd`; el donante no se modifica. La caja bloquea tracciones distintas. |
 | **Respaldos** | Antes de cada guardado, swap o restauración crea ZIP timestamped de `data/`, `data.acd` y, en swaps de audio, los sonidos del destino. Incluye botón de restauración. |
+| **Tracción total (AWD)** | Cuando el coche declara `[AWD]`/`[AWD2]`, la pestaña Cambios muestra el reparto al eje delantero (`FRONT_SHARE`) y los diferenciales delantero, central y trasero (bloqueo al acelerar/retener y precarga); en el modelo `[AWD2]` también la rampa y el par máximo del central. Solo se editan claves que el coche ya trae. |
 
 Los rangos de los controles de chasis salen del propio `setup.ini` del coche
 cuando los declara, asi que nunca se sale de lo que el setup del juego acepta.
@@ -140,6 +143,10 @@ quickmechanic/
   cm_panel.py      panel de estado, seleccion y sincronizacion de biblioteca
   units.py         conversiones y fisica (N/mm, CV, km/h, frecuencias...)
   theme.py         paleta y hoja de estilo (estetica racing)
+  i18n.py          motor de traduccion (español base -> ingles) y cobertura
+  locales.py       tabla de traducciones y lista de identificadores ignorados
+  qt_i18n.py       widgets de Qt que traducen el texto que reciben
+  updates.py       comprobacion de versiones en GitHub Releases y descarga
   widgets.py       piezas de interfaz compartidas (paneles, tiles, preview)
   tabs/            pestanas de la interfaz
   main.py          ventana principal
@@ -150,6 +157,47 @@ tests/             tests unitarios + tests contra la instalacion real
 tools/capturas.py  genera docs/*.png y docs/capturas.html
 launcher.py        punto de entrada para PyInstaller
 ```
+
+## Idioma (Español / English)
+
+El español es el idioma base: el texto del codigo es la clave de traduccion y
+`quickmechanic/locales.py` guarda su version inglesa (frases completas, mensajes
+con valores y los titulos en mayusculas de las tarjetas). `quickmechanic/qt_i18n.py`
+entrega a Qt los widgets ya traducidos, asi que ninguna etiqueta se queda por
+traducir por un despiste, y `quickmechanic/i18n.py` hace de motor.
+
+- Boton **Idioma** en la cabecera: guarda la preferencia y ofrece reiniciar la app
+  para reconstruir la interfaz con el idioma nuevo (no hay que reinstalar nada).
+- Si falta una traduccion se muestra el texto en español: nunca aparecen claves.
+- `python -m quickmechanic.i18n` lista lo que queda sin traducir y
+  `tests/test_i18n.py` falla si aparece texto nuevo sin traducir en la interfaz.
+
+## Actualizaciones
+
+Al abrir la app (y tambien desde **Interfaz → Buscar actualizaciones ahora**) se
+consulta la ultima release publicada de GitHub:
+
+```
+GET https://api.github.com/repos/IraitzZZ/QuickMechanic/releases/latest
+```
+
+- Si el `tag_name` es mas nuevo que la version instalada, aparece un aviso
+  persistente arriba con **Descargar e instalar**, **Ver en GitHub** y una × para
+  cerrarlo. El aviso no desaparece solo: se queda hasta que lo cierres.
+- **Descargar** baja el `Setup.exe` (o el `.zip`) a
+  `%APPDATA%\QuickMechanic\updates` en segundo plano. **Nunca se ejecuta nada
+  solo**: el instalador se abre unicamente cuando pulsas **Abrir instalador**.
+- Si la descarga falla, el aviso se queda con el error y un boton para reintentar.
+- Sin internet, con 404 (repositorio privado o sin releases) o con un JSON raro
+  la comprobacion no molesta: se ignora en silencio y la app funciona normal. Si
+  la pediste a mano, el pie de la ventana te dice que no se pudo consultar.
+- Se puede desactivar en **Interfaz → Comprobar actualizaciones al iniciar**. La
+  version descartada se recuerda para no insistir con la misma release.
+
+Nota: `https://github.com/IraitzZZ/QuickMechanic/releases/latest` debe existir y
+ser publico para que el aviso llegue a los usuarios. Si publicas la version que
+ya tienes instalada (por ejemplo `v0.2.0` con la app en `0.2.0`), no se ofrece
+nada: se avisa cuando el tag sea superior (por ejemplo `v0.2.1`).
 
 ## Tests
 

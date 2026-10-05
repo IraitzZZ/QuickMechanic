@@ -11,12 +11,11 @@ import math
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
-    QScrollArea,
     QVBoxLayout,
-    QWidget,
 )
+
+from ..qt_i18n import QFrame, QScrollArea, QWidget
 
 from .. import theme, units, widgets
 from ..car_data import CarData

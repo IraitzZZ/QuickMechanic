@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout
+from .qt_i18n import QCheckBox, QDialog, QLabel, QPushButton, QWidget
 
 from . import APP_NAME, theme
 from .branding import brand_pixmap

@@ -32,31 +32,20 @@ from PyQt6.QtCore import (
     pyqtSignal,
     pyqtSlot,
 )
-from PyQt6.QtGui import QAction, QCloseEvent, QDesktopServices, QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import QCloseEvent, QDesktopServices, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
-    QDialog,
     QButtonGroup,
-    QFileDialog,
-    QFrame,
     QGraphicsOpacityEffect,
-    QInputDialog,
     QHBoxLayout,
-    QMenu,
-    QLabel,
-    QLineEdit,
-    QListWidget,
     QListWidgetItem,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
     QSplitter,
-    QTabWidget,
     QSystemTrayIcon,
     QTextBrowser,
     QVBoxLayout,
-    QWidget,
 )
+
+from .qt_i18n import QAction, QDialog, QFileDialog, QFrame, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMenu, QMessageBox, QPushButton, QTabWidget, QWidget
 
 from . import (
     APP_NAME,
@@ -65,12 +54,14 @@ from . import (
     car_data,
     content_manager,
     drift,
+    i18n,
     license as app_license,
     presets,
     settings,
     skins,
     swaps,
     theme,
+    updates,
     widgets,
 )
 from .branding import LoadingSplash, app_icon
@@ -127,6 +118,11 @@ class MainWindow(QMainWindow):
         self._exit_requested = False
         self._scan_thread: QThread | None = None
         self._scan_worker: _LibraryScanWorker | None = None
+        self._update_thread: QThread | None = None
+        self._update_worker: updates.UpdateWorker | None = None
+        self._download_thread: QThread | None = None
+        self._update_info: updates.UpdateInfo | None = None
+        self._skipped_update = str(settings.get("skipped_update", "") or "")
         self._show_guide_on_start = bool(settings.get("show_guide", True)) and not background
         self._show_splash_on_start = bool(settings.get("show_loading_splash", True)) and not background
 
@@ -201,6 +197,12 @@ class MainWindow(QMainWindow):
         self._community_notification_timer = QTimer(self)
         self._community_notification_timer.setSingleShot(True)
         self._community_notification_timer.timeout.connect(self._hide_discord_notification)
+
+        self.update_notification = updates.UpdateNotice()
+        self.update_notification.downloadRequested.connect(self._start_update_download)
+        self.update_notification.openPageRequested.connect(self._open_update_page)
+        self.update_notification.dismissed.connect(self._dismiss_update_notice)
+        outer.addWidget(self.update_notification, 0)
 
         body = QWidget()
         body_layout = QHBoxLayout(body)
@@ -471,6 +473,7 @@ class MainWindow(QMainWindow):
             ),
             ("Ruta AC", self._choose_ac_root, "Si el juego no esta en la ruta de Steam"),
             ("Interfaz", self._theme_menu, "Tema carbón y oro; ajusta el tamaño de la interfaz"),
+            ("Idioma", self._language_menu, "Español / English · la app se reinicia al cambiar"),
             ("Guía", self._show_guide, "Guía rápida, seguridad y atajos de teclado"),
             ("INFO", self._show_info, "Créditos y licencia de Quick Mechanic"),
         ):
@@ -482,6 +485,8 @@ class MainWindow(QMainWindow):
             layout.addWidget(button, 0)
             if text == "Recargar":
                 self.reload_button = button
+            elif text == "Idioma":
+                self.language_button = button
         return header
 
     def _build_car_header(self) -> QFrame:
@@ -637,7 +642,7 @@ class MainWindow(QMainWindow):
             self._splash.set_status(f"BOX LISTO · {len(self._cars)} COCHES", 100)
             self._splash.finish(self)
         elif not self._background_start:
-            QTimer.singleShot(250, self._show_discord_notification)
+            self._schedule_startup_notices()
         if (
             self._show_guide_on_start
             and not self._background_start
@@ -661,13 +666,13 @@ class MainWindow(QMainWindow):
             self._splash.set_status("BIBLIOTECA NO DISPONIBLE", 100)
             self._splash.finish(self)
         elif not self._background_start:
-            QTimer.singleShot(250, self._show_discord_notification)
+            self._schedule_startup_notices()
 
     def _complete_splash_finish(self) -> None:
         self._splash = None
         self._splash_finish_pending = False
         if not self._background_start:
-            QTimer.singleShot(250, self._show_discord_notification)
+            self._schedule_startup_notices()
 
     def _export_library_csv(self) -> None:
         if not self._shown:
@@ -734,6 +739,152 @@ class MainWindow(QMainWindow):
     def _hide_discord_notification(self) -> None:
         self._community_notification_timer.stop()
         self.community_notification.hide()
+
+    # ------------------------------------------------------- idioma y actualizaciones
+    def _schedule_startup_notices(self) -> None:
+        if self._background_start:
+            return
+        QTimer.singleShot(250, self._show_discord_notification)
+        QTimer.singleShot(1200, self._check_updates)
+
+    def _language_menu(self) -> None:
+        menu = QMenu(self)
+        menu.addAction("IDIOMA / LANGUAGE · se aplica al reiniciar").setEnabled(False)
+        menu.addSeparator()
+        for code in i18n.LANGUAGES:
+            action = menu.addAction(i18n.language_label(code))
+            action.setCheckable(True)
+            action.setChecked(i18n.get_language() == code)
+            action.triggered.connect(
+                lambda _checked=False, language=code: self._set_language(language)
+            )
+        button = self.sender()
+        if isinstance(button, QPushButton):
+            menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def _set_language(self, code: str) -> None:
+        if code not in i18n.LANGUAGES or code == i18n.get_language():
+            return
+        i18n.set_language(code, persist=True)
+        answer = QMessageBox.question(
+            self,
+            "Idioma cambiado",
+            "El idioma se aplica al reiniciar Quick Mechanic para reconstruir la interfaz. "
+            "¿Quieres reiniciar ahora?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes and restart_application():
+            return
+        self.footer_status.setText("Idioma guardado · se aplicará al reiniciar la app")
+
+    def _check_updates(self, force: bool = False) -> None:
+        """Mira si hay una release mas nueva; nunca lanza errores al usuario."""
+        if self._background_start and not force:
+            return
+        if not force and not bool(settings.get("check_updates", True)):
+            return
+        if self._update_thread is not None and self._update_thread.isRunning():
+            return
+        self._update_check_forced = bool(force)
+        if force:
+            self.footer_status.setText("Comprobando actualizaciones en GitHub…")
+        worker = updates.UpdateWorker(__version__)
+        worker.finished.connect(self._on_update_checked)
+        worker.finished.connect(lambda info, check=force: self._report_update_check(info, check))
+        worker.failed.connect(self._on_update_failed)
+        self._update_worker = worker
+        thread = updates.start_worker(worker, self)
+        self._update_thread = thread
+        thread.finished.connect(lambda ended=thread: self._clear_workers(ended))
+
+    def _on_update_checked(self, info) -> None:
+        if info is None or info.tag == self._skipped_update:
+            return
+        self._update_info = info
+        self.update_notification.show_available(info)
+        self.footer_status.setText(f"Nueva versión disponible: {info.name or info.tag}")
+
+    def _report_update_check(self, info, forced: bool) -> None:
+        if not forced:
+            return
+        if info is None:
+            self.footer_status.setText(
+                "No hay versiones nuevas (o no se pudo consultar GitHub en este momento)"
+            )
+            return
+        self.update_notification.show_available(info)
+        QMessageBox.information(
+            self, "Actualización disponible",
+            f"Hay una versión nueva: {info.name or info.tag}.\n\n"
+            "Puedes descargarla desde el aviso de la parte superior.",
+        )
+
+    def _on_update_failed(self, message: str) -> None:
+        # En el arranque se ignora en silencio; si la comprobacion fue a mano, se avisa.
+        if not getattr(self, "_update_check_forced", False):
+            return
+        self.footer_status.setText(f"No se pudo comprobar la versión: {message}")
+
+    def _start_update_download(self) -> None:
+        notice = self.update_notification
+        if notice.downloaded_path is not None:
+            notice.launch_downloaded()
+            return
+        info = self._update_info or notice.info
+        if info is None:
+            return
+        candidates = updates.asset_candidates(info)
+        if not candidates:
+            QMessageBox.information(
+                self, "Sin instalador en la release",
+                "Esta release no trae ningún .exe ni .zip descargable. Ábrela en GitHub "
+                "para bajarlo a mano.",
+            )
+            return
+        if self._download_thread is not None and self._download_thread.isRunning():
+            return
+        notice.show_downloading()
+        worker = updates.DownloadWorker(candidates[0])
+        worker.finished.connect(self._on_update_downloaded)
+        worker.failed.connect(self._on_download_failed)
+        thread = updates.start_worker(worker, self)
+        self._download_thread = thread
+        thread.finished.connect(lambda ended=thread: self._clear_workers(ended))
+
+    def _clear_workers(self, thread: QThread) -> None:
+        """Suelta las referencias de un hilo terminado (nunca se usa su objeto C++)."""
+        if self._update_thread is thread:
+            self._update_thread = None
+            self._update_worker = None
+        if self._download_thread is thread:
+            self._download_thread = None
+        if self._exit_requested:
+            # Cerrar mientras se descargaba: Qt no admite destruir un hilo vivo.
+            QTimer.singleShot(0, self.close)
+
+    def _on_update_downloaded(self, path) -> None:
+        self.update_notification.show_downloaded(path)
+        self.footer_status.setText(f"Actualización descargada · {path.name}")
+
+    def _on_download_failed(self, message: str) -> None:
+        self.update_notification.show_error(message)
+        self.footer_status.setText("No se pudo descargar la actualización")
+
+    def _open_update_page(self) -> None:
+        info = self._update_info or self.update_notification.info
+        url = info.page_url if info is not None else updates.RELEASES_PAGE
+        QDesktopServices.openUrl(QUrl(url))
+
+    def _dismiss_update_notice(self) -> None:
+        info = self.update_notification.info
+        if info is None or self.update_notification.downloaded_path is not None:
+            return
+        self._skipped_update = info.tag
+        try:
+            settings.set_value("skipped_update", info.tag)
+        except OSError:
+            pass
 
     def _swap_menu(self) -> None:
         if self._source is None:
@@ -1410,6 +1561,13 @@ class MainWindow(QMainWindow):
         guide.setCheckable(True)
         guide.setChecked(self._show_guide_on_start)
         guide.toggled.connect(lambda enabled: self._set_startup_option("show_guide", enabled))
+        menu.addSeparator()
+        updates_option = menu.addAction("Comprobar actualizaciones al iniciar")
+        updates_option.setCheckable(True)
+        updates_option.setChecked(bool(settings.get("check_updates", True)))
+        updates_option.toggled.connect(self._set_update_check)
+        check_now = menu.addAction("Buscar actualizaciones ahora")
+        check_now.triggered.connect(lambda: self._check_updates(force=True))
         button = self.sender()
         if isinstance(button, QPushButton):
             menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
@@ -1526,6 +1684,17 @@ class MainWindow(QMainWindow):
             self._show_splash_on_start = bool(enabled)
         label = "Guía de bienvenida" if key == "show_guide" else "Animación de carga"
         self.footer_status.setText(f"{label} al iniciar: {'activada' if enabled else 'desactivada'}")
+
+    def _set_update_check(self, enabled: bool) -> None:
+        try:
+            settings.set_value("check_updates", bool(enabled))
+        except OSError:
+            pass
+        if enabled:
+            self._check_updates(force=True)
+        else:
+            self.update_notification.hide()
+            self.footer_status.setText("Aviso de actualizaciones desactivado")
 
     def _set_ui_scale(self, factor: float) -> None:
         if factor not in (0.9, 1.0, 1.1, 1.2):
@@ -1684,12 +1853,48 @@ class MainWindow(QMainWindow):
             self.hide()
             event.ignore()
             return
+        for background in (self._update_thread, self._download_thread):
+            if background is not None and background.isRunning():
+                self._exit_requested = True
+                self.hide()
+                event.ignore()
+                return
         if self._tray is not None:
             self._tray.hide()
         app = QApplication.instance()
         if app is not None:
             app.setQuitOnLastWindowClosed(True)
         event.accept()
+
+
+def relaunch_command(argv: list[str] | None = None) -> tuple[str, list[str]]:
+    """Programa y argumentos para volver a abrir la app tal y como se abrio."""
+    source = list(sys.argv[1:] if argv is None else argv)
+    extra = [
+        argument for argument in source if argument not in ("--selftest", "--background")
+    ]
+    if getattr(sys, "frozen", False):
+        return sys.executable, extra
+    launcher = Path(__file__).resolve().parent.parent / "launcher.py"
+    prefix = [str(launcher)] if launcher.is_file() else ["-m", "quickmechanic"]
+    return sys.executable, prefix + extra
+
+
+def restart_application() -> bool:
+    """Relanza la app con los mismos argumentos (para aplicar el idioma).
+
+    Devuelve ``True`` si el nuevo proceso arrancó; la ventana actual se cierra
+    desde quien llama para no dejar dos instancias abiertas.
+    """
+    from PyQt6.QtCore import QProcess
+
+    program, arguments = relaunch_command()
+    started = QProcess.startDetached(program, arguments)
+    if started:
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+    return bool(started)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1712,6 +1917,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return run(ac_root=args.ac_root, report=args.report)
 
+    i18n.set_language(i18n.load_saved_language())
     app = QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)

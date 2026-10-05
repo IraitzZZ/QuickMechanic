@@ -1,6 +1,7 @@
 """Tests de la capa de datos del coche (lectura, edicion y guardado)."""
 from __future__ import annotations
 
+import shutil
 import unittest
 
 from quickmechanic import car_data, units
@@ -292,6 +293,131 @@ class CarDataWriteTest(TempCarMixin):
     def test_coche_sin_ficheros_no_es_editable(self):
         empty = car_data.CarData(self.tmp / "vacia", name="vacia")
         self.assertFalse(empty.editable)
+
+
+class AwdTest(TempCarMixin):
+    """Traccion total: solo se editan las claves que el coche ya trae escritas.
+
+    El coche de pruebas es RWD y no tiene [AWD]; se le anaden las dos secciones
+    tal y como las escriben los coches reales de Assetto Corsa (AWD y AWD2).
+    """
+
+    AWD_SECTION = """
+[AWD]
+FRONT_SHARE=35
+FRONT_DIFF_POWER=0.10
+FRONT_DIFF_COAST=0.00
+FRONT_DIFF_PRELOAD=0
+CENTRE_DIFF_POWER=0.02
+CENTRE_DIFF_COAST=0.02
+CENTRE_DIFF_PRELOAD=0
+REAR_DIFF_POWER=0.00
+REAR_DIFF_COAST=0.28
+REAR_DIFF_PRELOAD=0
+"""
+
+    AWD2_SECTION = """
+[AWD2]
+FRONT_DIFF_POWER=0.01
+CENTRE_RAMP_TORQUE=100.0
+CENTRE_MAX_TORQUE=1000.0
+REAR_DIFF_POWER=0.50
+"""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Copia intacta (sin [AWD]) para comprobar que no se inventan parametros.
+        shutil.copytree(self.data_dir, self.tmp / "sin_awd")
+        self.sin_awd = car_data.CarData(
+            self.tmp / "sin_awd", name="ks_test_car", ui_name="Coche de prueba"
+        )
+        drivetrain = self.data_dir / "drivetrain.ini"
+        drivetrain.write_text(
+            drivetrain.read_text(encoding="utf-8") + self.AWD_SECTION + self.AWD2_SECTION,
+            encoding="utf-8",
+        )
+        self.car = car_data.CarData(self.data_dir, name="ks_test_car", ui_name="Coche de prueba")
+
+    def test_coche_sin_secciones_awd_no_ofrece_parametros(self):
+        self.assertEqual(self.sin_awd.awd_sections, ())
+        self.assertFalse(self.sin_awd.has_awd)
+        self.assertEqual(self.sin_awd.awd_values(), {})
+        self.assertEqual(self.sin_awd.awd_mode, "")
+        self.assertFalse(self.sin_awd.set_awd_value("AWD", "FRONT_SHARE", 50))
+        intacto = (self.tmp / "sin_awd" / "drivetrain.ini").read_text(encoding="utf-8")
+        self.assertNotIn("[AWD]", intacto)
+        self.assertFalse(self.sin_awd.changed)
+
+    def test_lee_awd_y_awd2_solo_lo_que_existe(self):
+        self.assertEqual(self.car.awd_sections, ("AWD", "AWD2"))
+        self.assertTrue(self.car.has_awd)
+        self.assertEqual(self.car.awd_mode, "AWD2")
+        self.assertAlmostEqual(self.car.awd_value("AWD", "FRONT_SHARE"), 35.0, places=3)
+        self.assertAlmostEqual(self.car.awd_value("AWD2", "CENTRE_RAMP_TORQUE"), 100.0, places=3)
+        # CENTRE_RAMP_TORQUE solo vive en [AWD2] y FRONT_SHARE solo en [AWD]
+        self.assertIsNone(self.car.awd_value("AWD", "CENTRE_RAMP_TORQUE"))
+        self.assertIsNone(self.car.awd_value("AWD2", "FRONT_SHARE"))
+        self.assertIsNone(self.car.awd_value("AWD", "INVENTADO"))
+
+    def test_escribe_solo_claves_existentes_y_valores_validos(self):
+        self.assertTrue(self.car.set_awd_value("AWD", "FRONT_SHARE", 55))
+        self.assertTrue(self.car.set_awd_value("AWD", "REAR_DIFF_COAST", 0.45))
+        self.assertTrue(self.car.set_awd_value("AWD2", "CENTRE_MAX_TORQUE", 850.0))
+        self.assertEqual(self.car.awd_value("AWD", "FRONT_SHARE"), 55.0)
+        self.assertIn("drivetrain.ini", self.car.dirty_files())
+        self.assertEqual(self.car.save(), ["drivetrain.ini"])
+        guardado = self.read("drivetrain.ini")
+        self.assertIn("FRONT_SHARE=55", guardado)
+        self.assertIn("REAR_DIFF_COAST=0.45", guardado)
+        self.assertIn("CENTRE_MAX_TORQUE=850", guardado)
+        # el resto de claves AWD que no se han tocado queda como estaba
+        self.assertIn("REAR_DIFF_POWER=0.00", guardado)
+        self.assertIn("CENTRE_RAMP_TORQUE=100.0", guardado)
+
+    def test_rechaza_claves_inexistentes_sin_crearlas(self):
+        antes = self.read("drivetrain.ini")
+        self.assertFalse(self.car.set_awd_value("AWD2", "FRONT_SHARE", 50))
+        self.assertFalse(self.car.set_awd_value("AWD", "CENTRE_RAMP_TORQUE", 120))
+        self.assertFalse(self.car.set_awd_value("AWD3", "FRONT_SHARE", 50))
+        self.assertFalse(self.car.set_awd_value("AWD", "FRONT_SHARE", float("nan")))
+        self.assertEqual(self.read("drivetrain.ini"), antes)
+        self.assertNotIn("CENTRE_RAMP_TORQUE", self.read("drivetrain.ini").split("[AWD2]")[0])
+
+    def test_valida_rangos_reales_del_juego(self):
+        for section, key, value in (
+            ("AWD", "FRONT_SHARE", 140.0),
+            ("AWD", "FRONT_SHARE", -5.0),
+            ("AWD", "FRONT_DIFF_POWER", 1.5),
+            ("AWD", "REAR_DIFF_COAST", -0.1),
+            ("AWD2", "CENTRE_RAMP_TORQUE", 99999.0),
+            ("AWD2", "CENTRE_MAX_TORQUE", -1.0),
+        ):
+            with self.subTest(key=key, value=value):
+                self.assertFalse(self.car.set_awd_value(section, key, value))
+        self.assertFalse(self.car.changed)
+
+    def test_snapshot_y_restore_llevan_los_ajustes_awd(self):
+        original = self.car.setup_snapshot()
+        self.assertIn("AWD", original["values"]["drivetrain.ini"])
+        self.assertTrue(self.car.set_awd_value("AWD", "FRONT_SHARE", 20))
+        self.assertTrue(self.car.set_awd_value("AWD2", "CENTRE_RAMP_TORQUE", 250.0))
+        self.car.restore_setup(original)
+        self.assertAlmostEqual(self.car.awd_value("AWD", "FRONT_SHARE"), 35.0, places=3)
+        self.assertAlmostEqual(self.car.awd_value("AWD2", "CENTRE_RAMP_TORQUE"), 100.0, places=3)
+
+    def test_restore_no_inyecta_claves_awd_inexistentes(self):
+        snapshot = self.car.setup_snapshot()
+        snapshot["values"]["drivetrain.ini"]["AWD"]["HACKED"] = "1"
+        snapshot["values"]["drivetrain.ini"]["AWD2"]["FRONT_SHARE"] = "90"
+        self.car.restore_setup(snapshot)
+        self.assertFalse(self.car.ini("drivetrain.ini").has("AWD", "HACKED"))
+        self.assertFalse(self.car.ini("drivetrain.ini").has("AWD2", "FRONT_SHARE"))
+
+    def test_resumen_awd_usa_porcentajes_y_newtons(self):
+        resumen = dict(self.car.awd_summary())
+        self.assertEqual(resumen["Reparto delantero"], "35%")
+        self.assertEqual(resumen["AWD · REAR_DIFF_COAST"], "28%")
+        self.assertEqual(resumen["AWD2 · CENTRE_RAMP_TORQUE"], "100 Nm")
 
 
 if __name__ == "__main__":

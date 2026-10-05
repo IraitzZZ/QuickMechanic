@@ -451,6 +451,11 @@ QFrame#communityNotification {{ background: {gold_tint}; border: 1px solid {acce
 QFrame#communityNotification QWidget {{ background: transparent; }}
 QLabel#communityBadge {{ color: {accent_light}; font-size: 10px; font-weight: 900; letter-spacing: 1px; }}
 QLabel#communityMessage {{ color: {fg}; font-size: 12px; }}
+QFrame#updateNotification {{ background: {panel_alt}; border: 1px solid {accent}; border-left: 3px solid {accent}; border-radius: 0; }}
+QFrame#updateNotification QWidget {{ background: transparent; }}
+QLabel#updateBadge {{ color: {bg_alt}; background: {accent}; font-size: 10px; font-weight: 900; letter-spacing: 1px; padding: 2px 7px; border-radius: 3px; }}
+QLabel#updateMessage {{ color: {fg}; font-size: 12px; font-weight: 700; }}
+QLabel#updateDetail {{ color: {muted}; font-size: 11px; }}
 QLabel#guideStripText {{ color: {muted}; font-size: 11px; font-weight: 600; }}
 QFrame#footer {{ background: {panel}; border-top: 1px solid {border}; }}
 QLabel#integrationMark {{ color: {accent}; background: {bg}; border: 1px solid {accent_dark}; border-radius: 8px; font-weight: 900; }}

@@ -27,6 +27,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QSplashScreen
 
 from . import APP_NAME, __version__, theme
+from .i18n import tr
 
 
 def logo_path() -> Path | None:
@@ -130,7 +131,7 @@ class LoadingSplash(QSplashScreen):
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setFixedSize(460, 320)
         self._progress = 8.0
-        self._status = "PREPARANDO BOX DIGITAL"
+        self._status = tr("PREPARANDO BOX DIGITAL")
         self._pending_status = ""
         self._status_opacity = 1.0
         self._phase = 0.0
@@ -169,7 +170,7 @@ class LoadingSplash(QSplashScreen):
         self.update()
 
     def set_status(self, message: str, progress: int | None = None) -> None:
-        normalized = message.upper()
+        normalized = tr(message).upper()
         if normalized != self._status and normalized != self._pending_status:
             self._pending_status = normalized
             self._status_animation.stop()

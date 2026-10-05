@@ -448,6 +448,168 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertIn("[TRACTION]", self.read("electronics.ini"))
         self.assertIn("ACTIVE=1", self.read("electronics.ini"))
 
+    # ---------------------------------------------------------- idioma ingles
+    def test_interfaz_en_ingles_se_construye_traducida(self):
+        from quickmechanic import i18n
+
+        i18n.set_language("en")
+        self.addCleanup(i18n.set_language, "es")
+        ventana = main.MainWindow(ac_root=self.tmp)
+        self.addCleanup(ventana.deleteLater)
+        from PyQt6.QtTest import QTest
+        for _ in range(500):
+            if ventana.car_list.isEnabled():
+                break
+            QTest.qWait(10)
+        self.assertEqual(ventana.tabs.tabText(0), "Overview")
+        self.assertEqual(ventana.tabs.tabText(2), "Gearbox")
+        self.assertEqual(ventana.save_button.text(), "Save all")
+        self.assertEqual(ventana.language_button.text(), "Language")
+        self.assertIn("Search cars", ventana.search.placeholderText())
+        # El estado del pie tambien se traduce aunque se componga con valores.
+        self.assertIn("cars scanned", ventana.footer_status.text())
+        self.assertNotIn("coches", ventana.footer_status.text())
+
+    def test_selector_de_idioma_guarda_la_preferencia(self):
+        from quickmechanic import i18n
+        from quickmechanic.qt_i18n import QMessageBox
+
+        self.addCleanup(i18n.set_language, "es")
+        with mock.patch.object(
+            QMessageBox, "question", return_value=QMessageBox.StandardButton.Cancel
+        ):
+            self.window._set_language("en")  # noqa: SLF001
+        self.assertEqual(i18n.get_language(), "en")
+        self.settings_mock.assert_any_call("language", "en")
+        # El aviso sale ya en el idioma nuevo (la interfaz se reconstruye al reiniciar).
+        self.assertIn("Language saved", self.window.footer_status.text())
+
+    def test_elegir_reiniciar_relanza_la_app_con_el_idioma_nuevo(self):
+        from quickmechanic import i18n
+        from quickmechanic.qt_i18n import QMessageBox
+
+        self.addCleanup(i18n.set_language, "es")
+        with (
+            mock.patch.object(
+                QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes
+            ),
+            mock.patch.object(main, "restart_application", return_value=True) as relanzar,
+        ):
+            self.window._set_language("en")  # noqa: SLF001
+        relanzar.assert_called_once()
+        self.assertEqual(i18n.get_language(), "en")
+
+    def test_relanzar_reutiliza_ejecutable_y_argumentos(self):
+        import sys
+
+        programa, argumentos = main.relaunch_command(["--ac-root", "C:\\AC", "--background"])
+        self.assertEqual(programa, sys.executable)
+        self.assertIn("--ac-root", argumentos)
+        self.assertNotIn("--background", argumentos)
+        self.assertNotIn("--selftest", main.relaunch_command(["--selftest"])[1])
+
+    # ------------------------------------------------------ auto-actualizaciones
+    def aviso_de_version(self):
+        from quickmechanic import updates
+
+        return updates.UpdateInfo(
+            tag="v0.9.0",
+            version=(0, 9, 0),
+            name="Quick Mechanic 0.9.0",
+            notes="Idioma y AWD.",
+            page_url="https://example.test/release",
+            assets=(updates.UpdateAsset("Setup.exe", "https://example.test/Setup.exe", 4),),
+        )
+
+    def test_aviso_de_version_nueva_es_persistente_hasta_cerrarlo(self):
+        self.window._on_update_checked(self.aviso_de_version())  # noqa: SLF001
+        aviso = self.window.update_notification
+        self.assertFalse(aviso.isHidden())
+        self.assertIn("0.9.0", aviso.message.text())
+        self.assertIn("0.9.0", self.window.footer_status.text())
+        self.assertTrue(aviso.download_button.isEnabled())
+        aviso.dismiss_button.click()
+        self.assertTrue(aviso.isHidden())
+        self.settings_mock.assert_any_call("skipped_update", "v0.9.0")
+
+    def test_una_version_descartada_no_insiste(self):
+        self.window._skipped_update = "v0.9.0"  # noqa: SLF001
+        self.window._on_update_checked(self.aviso_de_version())  # noqa: SLF001
+        self.assertTrue(self.window.update_notification.isHidden())
+
+    def test_release_sin_instalador_avisa_y_no_descarga(self):
+        from quickmechanic import updates
+
+        vacia = updates.UpdateInfo("v0.9.0", (0, 9, 0), "n", "", "https://example.test", ())
+        with mock.patch.object(main.QMessageBox, "information") as aviso:
+            self.window._on_update_checked(vacia)  # noqa: SLF001
+            self.window._start_update_download()  # noqa: SLF001
+        self.assertEqual(aviso.call_count, 1)
+        self.assertIsNone(self.window._download_thread)  # noqa: SLF001
+
+    def test_descargar_no_ejecuta_ni_abre_nada_solo(self):
+        from quickmechanic import updates
+
+        with mock.patch.object(updates.QDesktopServices, "openUrl") as abrir:
+            self.window._on_update_downloaded(Path(tempfile.gettempdir()) / "Setup.exe")  # noqa: SLF001
+        abrir.assert_not_called()
+        self.assertIn("Setup.exe", self.window.footer_status.text())
+        self.assertEqual(
+            self.window.update_notification.download_button.text(), "Abrir instalador"
+        )
+
+    def test_dos_comprobaciones_seguidas_no_tocan_un_hilo_ya_terminado(self):
+        from PyQt6.QtCore import pyqtSlot
+        from PyQt6.QtTest import QTest
+
+        from quickmechanic import updates
+
+        class WorkerFalso(updates.UpdateWorker):
+            @pyqtSlot()
+            def run(self) -> None:
+                self.finished.emit(None)
+
+        with mock.patch.object(main.updates, "UpdateWorker", WorkerFalso):
+            for _ in range(2):
+                self.window._check_updates(force=True)  # noqa: SLF001
+                for _ in range(200):
+                    if self.window._update_thread is None:  # noqa: SLF001
+                        break
+                    QTest.qWait(10)
+                self.assertIsNone(self.window._update_thread)  # noqa: SLF001
+
+    def test_error_de_descarga_se_queda_en_el_aviso_con_reintento(self):
+        self.window._on_update_checked(self.aviso_de_version())  # noqa: SLF001
+        self.window._on_download_failed("sin internet")  # noqa: SLF001
+        aviso = self.window.update_notification
+        self.assertFalse(aviso.isHidden())
+        self.assertIn("sin internet", aviso.detail.text())
+        self.assertEqual(aviso.download_button.text(), "Reintentar descarga")
+
+    # ------------------------------------------------------- traccion total AWD
+    def test_awd_solo_aparece_si_el_coche_declara_secciones(self):
+        self.select("ks_test_car")
+        self.assertTrue(self.window.gear_tab.awd_panel.isHidden())
+        drivetrain = self.car_dir / "data" / "drivetrain.ini"
+        drivetrain.write_text(
+            drivetrain.read_text(encoding="utf-8")
+            + "\n[AWD]\nFRONT_SHARE=40\nFRONT_DIFF_POWER=0.25\nREAR_DIFF_COAST=0.30\n",
+            encoding="utf-8",
+        )
+        self.window._reload_current()  # noqa: SLF001
+        panel = self.window.gear_tab
+        self.assertFalse(panel.awd_panel.isHidden())
+        campos = panel._awd_fields  # noqa: SLF001
+        self.assertEqual(sorted(campos), [("AWD", "FRONT_DIFF_POWER"), ("AWD", "FRONT_SHARE"), ("AWD", "REAR_DIFF_COAST")])
+        # los bloqueos se muestran en % aunque el fichero guarde fracciones
+        self.assertEqual(campos[("AWD", "FRONT_DIFF_POWER")].value(), 25.0)
+        campos[("AWD", "FRONT_SHARE")].setValue(55.0)
+        self.assertIn("drivetrain.ini", self.window._car.dirty_files())  # noqa: SLF001
+        self.window._save()  # noqa: SLF001
+        guardado = self.read("drivetrain.ini")
+        self.assertIn("FRONT_SHARE=55", guardado)
+        self.assertNotIn("AWD2", guardado)
+
 
 @unittest.skipUnless(GUI, "PyQt6 no esta disponible")
 class PlaceholderTest(unittest.TestCase):

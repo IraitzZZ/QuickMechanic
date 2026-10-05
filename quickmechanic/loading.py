@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import QSplashScreen
 
 from . import APP_NAME, theme
 from .branding import brand_pixmap
+from .i18n import tr
 
 
 class LoadingSplash(QSplashScreen):
@@ -16,7 +17,7 @@ class LoadingSplash(QSplashScreen):
         super().__init__(pixmap, Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
         self.setFixedSize(500, 310)
         self._progress = 0
-        self._message = "INICIALIZANDO TALLER"
+        self._message = tr("INICIALIZANDO TALLER")
         self._timer = QTimer(self)
         self._timer.setInterval(24)
         self._timer.timeout.connect(self._advance)
@@ -24,7 +25,7 @@ class LoadingSplash(QSplashScreen):
         self.repaint()
 
     def update_status(self, message: str, progress: int) -> None:
-        self._message = message.upper()
+        self._message = tr(message).upper()
         self._progress = max(self._progress, min(100, int(progress)))
         self.repaint()
 
