@@ -76,6 +76,7 @@ dist\QuickMechanic.exe --selftest --report informe.txt
 | **Diagnostico** | Ficha del coche, avisos (dano por boost, limite de rpm, ficheros que faltan...) y estado de los ficheros |
 | **Avanzado** | Tabla filtrable de parámetros físicos numéricos ya existentes en los INI, para editar sin inventar claves |
 | **Perfiles** | Incluye un preset orientativo de drift que adapta cambios a RWD/AWD y solo toca parámetros existentes; requiere revisión en pista |
+| **Taller** | Analisis y gestion: prestaciones estimadas (0-100, 0-200, punta, peso/potencia), editor visual de la curva de par arrastrando puntos sobre la grafica, simulador de cambio (velocidad y punto de cambio por marcha), calculador de gearing optimo por circuito, comparador de dos coches, diagnostico 🟢🟡🔴 con detector de conflictos, presets de estilo (Street, Track, Drift, GT3, Drag, Rally), Setup Manager por circuito/condiciones, gestor de versiones, respaldos con restauracion de un fichero suelto, historial de cambios e informe `.txt`/`.html` |
 | **Content Manager** | Detecta/abre el ejecutable configurado y permite resincronizar `content/cars` tras instalar o extraer contenido |
 | **Swaps** | Previsualiza y transfiere motor (engine.ini + curvas enlazadas), sonido (sfx.ini + bancos/GUIDs declarados), transmisión compatible y geometría básica de suspensión. El sonido puede aplicarse a coches que solo tengan `data.acd`; el donante no se modifica. La caja bloquea tracciones distintas. |
 | **Respaldos** | Antes de cada guardado, swap o restauración crea ZIP timestamped de `data/`, `data.acd` y, en swaps de audio, los sonidos del destino. Incluye botón de restauración. |
@@ -146,7 +147,9 @@ quickmechanic/
   i18n.py          motor de traduccion (español base -> ingles) y cobertura
   locales.py       tabla de traducciones y lista de identificadores ignorados
   qt_i18n.py       widgets de Qt que traducen el texto que reciben
-  updates.py       comprobacion de versiones en GitHub Releases y descarga
+  analysis.py      prestaciones, gearing, presets de estilo, comparador, diagnostico e informes
+  garage.py        setups (.qmsetup), versiones, historial de cambios, respaldos y clonado
+  curves.py        graficas QPainter (curva editable con arrastre y grafica de series)
   widgets.py       piezas de interfaz compartidas (paneles, tiles, preview)
   tabs/            pestanas de la interfaz
   main.py          ventana principal
@@ -172,32 +175,62 @@ traducir por un despiste, y `quickmechanic/i18n.py` hace de motor.
 - `python -m quickmechanic.i18n` lista lo que queda sin traducir y
   `tests/test_i18n.py` falla si aparece texto nuevo sin traducir en la interfaz.
 
-## Actualizaciones
+## Taller: calculos, setups y respaldos
 
-Al abrir la app (y tambien desde **Interfaz → Buscar actualizaciones ahora**) se
-consulta la ultima release publicada de GitHub:
+La pestana **Taller** (atajo `Ctrl+T`) reune las herramientas que no son edicion
+directa de un `.ini`. Nada de lo que hace escribe en el coche sin pasar por el
+boton **Guardar todo**: todo se prepara en memoria y se ve en el pie de la ventana.
 
-```
-GET https://api.github.com/repos/IraitzZZ/QuickMechanic/releases/latest
-```
-
-- Si el `tag_name` es mas nuevo que la version instalada, aparece un aviso
-  persistente arriba con **Descargar e instalar**, **Ver en GitHub** y una × para
-  cerrarlo. El aviso no desaparece solo: se queda hasta que lo cierres.
-- **Descargar** baja el `Setup.exe` (o el `.zip`) a
-  `%APPDATA%\QuickMechanic\updates` en segundo plano. **Nunca se ejecuta nada
-  solo**: el instalador se abre unicamente cuando pulsas **Abrir instalador**.
-- Si la descarga falla, el aviso se queda con el error y un boton para reintentar.
-- Sin internet, con 404 (repositorio privado o sin releases) o con un JSON raro
-  la comprobacion no molesta: se ignora en silencio y la app funciona normal. Si
-  la pediste a mano, el pie de la ventana te dice que no se pudo consultar.
-- Se puede desactivar en **Interfaz → Comprobar actualizaciones al iniciar**. La
-  version descartada se recuerda para no insistir con la misma release.
-
-Nota: `https://github.com/IraitzZZ/QuickMechanic/releases/latest` debe existir y
-ser publico para que el aviso llegue a los usuarios. Si publicas la version que
-ya tienes instalada (por ejemplo `v0.2.0` con la app en `0.2.0`), no se ofrece
-nada: se avisa cuando el tag sea superior (por ejemplo `v0.2.1`).
+- **Prestaciones estimadas**: modelo cuasi-estatico con la curva de par real,
+  el peso, las relaciones de cambio y el limite de agarre. Los supuestos
+  (Cd·A, coeficiente de agarre, salida con embrague) se listan siempre debajo del
+  diagnostico, porque son estimaciones, no datos del juego.
+- **Curva de par**: se arrastra un punto y se reescribe esa fila de `power.lut`.
+  Las vistas de potencia y de frenada son calculadas (no se editan a mano).
+- **Gearing optimo**: elige circuito (Monza, Spa, Nordschleife...) o deja que la
+  velocidad objetivo salga de la potencia, calcula las relaciones y las aplica
+  a `drivetrain.ini` conservando grupo final y numero de marchas.
+- **Presets de estilo**: Street, Track, Drift, GT3, Drag y Rally. Solo tocan
+  claves que el coche ya declara; lo que no existe se lista como no aplicado.
+- **Setup Manager**: guarda setups completos con circuito, condiciones y estilo
+  (`%APPDATA%\QuickMechanic\setups\<coche>\*.qmsetup`), los exporta para
+  compartirlos y los importa validando el formato antes de tocar nada.
+- **Versiones**: varias capturas del mismo coche con etiqueta y fecha, y
+  restauracion de cualquiera de ellas.
+- **Historial de cambios**: cada guardado anota que parametro cambio, cuando y
+  con que valor anterior y nuevo.
+- **Respaldos**: lista los ZIP de `quickmechanic_backups`, deja restaurar **un
+  solo fichero** de `data/` (haciendo antes un respaldo nuevo) y limpia los
+  antiguos conservando los cinco ultimos.
+- **Informes**: exporta la ficha, las prestaciones, las velocidades por marcha,
+  el diagnostico y los supuestos a `.txt` o `.html`.
+- **Atajos nuevos**: `Ctrl+T` taller, `Ctrl+Shift+B` respaldo del coche actual,
+  `Ctrl+P` exportar informe, `Ctrl+R` recargar el coche, `Ctrl+I` diagnostico.
+- **Navegacion por teclado**: `Ctrl+1` a `Ctrl+9` cambian de pestana y
+  `Alt+Arriba` / `Alt+Abajo` pasan al coche anterior o siguiente de la lista.
+- **Mas atajos**: `Ctrl+Tab` / `Ctrl+Shift+Tab` cambian de pestana en orden, `F1` abre
+  la guia, `Ctrl+L` lleva el foco a la lista de coches, `Ctrl+Shift+F` borra la busqueda
+  y los filtros, `Ctrl+Shift+C` copia el nombre del coche actual y `Ctrl+Shift+H`
+  muestra los ultimos 8 coches abiertos.
+- **Mas atajos de lista**: `Ctrl+Shift+D` / `Ctrl+Shift+E` activan el filtro de favoritos /
+  editables, `Ctrl+Shift+O` abre la carpeta del coche, `Ctrl+Shift+P` copia su ruta,
+  `F5` vuelve a escanear la biblioteca, `Esc` borra la busqueda, `Alt+Shift+Arriba` /
+  `Alt+Shift+Abajo` saltan entre favoritos, `Ctrl+Shift+N` elige un coche al azar,
+  `Ctrl+Shift+S` guarda y pasa al siguiente y `Ctrl+Shift+L` borra el historial de recientes.
+- **Lista de coches**: `Enter` en el buscador pasa el foco a la lista, `Ctrl+Home` / `Ctrl+End` van al
+  primer y al ultimo coche, `Ctrl+Shift+K`
+  cambia el orden (nombre, favoritos primero, editables primero o recientes primero; se recuerda),
+  `Ctrl+Shift+U` quita el coche actual de recientes, `Ctrl+Shift+Y` vuelve al ultimo coche abierto
+  y `Supr` alterna favorito. Doble clic tambien alterna favorito y el boton derecho abre un menu
+  con favorito, copiar nombre o ruta, abrir carpeta y quitar de recientes.
+- **Ventana y sistema**: `Ctrl+Q` cierra la app (pide confirmacion si hay cambios sin guardar),
+  `Ctrl+,` muestra la informacion, `Ctrl+Shift+M` oculta a la bandeja, `Ctrl+Shift+A` abre la
+  carpeta de Assetto Corsa y `Ctrl+Shift+G` abre la carpeta de datos.
+- **Estado de cambios**: un punto `●` delante del nombre marca los coches con cambios sin guardar;
+  el titulo de la ventana lo muestra y el pie indica la hora del ultimo guardado.
+- **Pistas en pestanas**: al pasar el raton por una pestana aparece su atajo `Ctrl+1` a `Ctrl+9`.
+- **Memoria de sesion**: la app recuerda la ultima pestana usada, el ultimo coche abierto,
+  la busqueda, los filtros de favoritos y editables y los coches recientes.
 
 ## Tests
 

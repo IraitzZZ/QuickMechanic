@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Acceso · QuickMechanic</title>
+  <meta name="theme-color" content="#0b0c0e">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="QuickMechanic Access">
+        <svg width="28" height="28" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+          <polygon points="24,2 44,13 44,35 24,46 4,35 4,13" fill="#0b0c0e" stroke="#c6a45a" stroke-width="2.5"/>
+          <polygon points="24,9 37,16.5 37,31.5 24,39 11,31.5 11,16.5" fill="none" stroke="#735d32" stroke-width="1"/>
+          <text x="24" y="29" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#e4ca83">QM</text>
+        </svg>
+        <span class="brand-name">Quick<span>Mechanic</span></span>
+      </a>
+      <span class="secure-pill">Verificación con Discord</span>
+    </div>
+  </header>
+
+  <main class="access wrap">
+    <!-- Verificación en curso: los pasos avanzan solo con comprobaciones reales. -->
+    <section class="card access-card" id="view-verifying" aria-live="polite">
+      <p class="eyebrow">Verificación</p>
+      <h1 class="stage-title">Comprobando tu acceso</h1>
+      <p class="lead">Esto solo tarda unos segundos.</p>
+      <ol class="checks" id="checks">
+        <li data-step="connect"><span class="check-dot" aria-hidden="true">1</span><span>Conectando con Discord</span></li>
+        <li data-step="identity"><span class="check-dot" aria-hidden="true">2</span><span>Verificando identidad</span></li>
+        <li data-step="member"><span class="check-dot" aria-hidden="true">3</span><span>Comprobando membresía del servidor</span></li>
+        <li data-step="prepare"><span class="check-dot" aria-hidden="true">4</span><span>Preparando el acceso</span></li>
+      </ol>
+    </section>
+
+    <!-- Acceso concedido -->
+    <section class="card access-card" id="view-ok" hidden aria-live="polite">
+      <div class="profile">
+        <div class="avatar-ring">
+          <img class="avatar" id="avatar" alt="" width="112" height="112" referrerpolicy="no-referrer" hidden>
+        </div>
+        <h1 class="profile-name" id="profile-name">Miembro</h1>
+        <span class="badge">Miembro verificado</span>
+        <p class="meta">
+          Verificado el <span id="verified-at">—</span><br>
+          <span id="discord-id-line" hidden>ID de Discord: <code id="discord-id"></code></span>
+        </p>
+      </div>
+      <div class="btn-row" id="ok-actions">
+        <button class="btn btn-primary" type="button" id="open-app">Abrir QuickMechanic</button>
+        <a class="btn btn-ghost" href="/">Volver al inicio</a>
+      </div>
+      <p class="notice" id="ok-notice" hidden>Abre QuickMechanic desde tu escritorio y pulsa «Conectar con Discord» para usar tu acceso.</p>
+    </section>
+
+    <!-- Error o acceso denegado -->
+    <section class="card access-card" id="view-error" hidden aria-live="assertive">
+      <div class="icon-mark" id="error-icon" aria-hidden="true">!</div>
+      <h1 id="error-title">No se pudo verificar el acceso</h1>
+      <p class="lead" id="error-text"></p>
+      <div class="btn-row">
+        <a class="btn btn-primary" id="join-link" href="https://discord.gg/pWE5yEKexW" hidden>Unirme al servidor</a>
+        <a class="btn btn-ghost" id="retry-link" href="/api/discord/start" hidden>Volver a comprobar</a>
+        <a class="btn btn-ghost" href="/">Volver al inicio</a>
+      </div>
+      <p class="notice" id="error-app-notice" hidden>Vuelve a QuickMechanic y pulsa «Conectar con Discord» para intentarlo de nuevo.</p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <span><strong>QUICKMECHANIC</strong> · Acceso Discord · v0.3.0</span>
+      <span>Tu sesión se revisa con Discord en cada inicio.</span>
+    </div>
+  </footer>
+
+  <script src="/acceso.js" defer></script>
+</body>
+</html>

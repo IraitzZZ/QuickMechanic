@@ -228,12 +228,12 @@ QToolTip {{
 
 /* ---------------------------------------------------------------- tarjetas */
 QGroupBox {{
-    background: {panel};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {panel_alt}, stop:1 {panel});
     border: 1px solid {border};
     border-left: 3px solid {accent};
-    border-radius: 8px;
-    margin-top: 16px;
-    padding: 12px 12px 10px 12px;
+    border-radius: 10px;
+    margin-top: 12px;
+    padding: 8px 10px 8px 10px;
     font-weight: bold;
 }}
 QGroupBox::title {{
@@ -245,11 +245,11 @@ QGroupBox::title {{
     background: {bg};
     text-transform: uppercase;
     letter-spacing: 1px;
-    font-size: 11px;
+    font-size: 13px;
 }}
 
 QFrame#statTile {{
-    background: {panel_alt};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {raised}, stop:1 {panel_alt});
     border: 1px solid {border};
     border-top: 3px solid {accent};
     border-radius: 8px;
@@ -257,21 +257,21 @@ QFrame#statTile {{
 QLabel#statValue {{
     background: transparent;
     color: {fg};
-    font-size: 21px;
+    font-size: 23px;
     font-weight: 800;
     letter-spacing: -0.5px;
 }}
 QLabel#statUnit {{
     background: transparent;
     color: {muted};
-    font-size: 10px;
+    font-size: 12px;
     font-weight: bold;
     letter-spacing: 1px;
 }}
 QLabel#statTitle {{
     background: transparent;
     color: {muted};
-    font-size: 10px;
+    font-size: 12px;
     font-weight: bold;
     letter-spacing: 1.4px;
     text-transform: uppercase;
@@ -279,7 +279,7 @@ QLabel#statTitle {{
 QLabel#pill {{
     border-radius: 9px;
     padding: 3px 9px;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: bold;
     letter-spacing: 1px;
     text-transform: uppercase;
@@ -295,14 +295,14 @@ QFrame#header {{
 QFrame#header QWidget {{ background: transparent; }}
 QLabel#appTitle {{
     color: {fg};
-    font-size: 21px;
+    font-size: 30px;
     font-weight: 800;
     font-style: italic;
     letter-spacing: 3px;
 }}
 QLabel#appSubtitle {{
     color: {muted};
-    font-size: 10px;
+    font-size: 12px;
     font-weight: bold;
     letter-spacing: 3px;
 }}
@@ -310,7 +310,7 @@ QLabel#appStripe {{
     background: {accent};
     border-radius: 2px;
 }}
-QLabel#headerNote {{ color: {muted}; font-size: 11px; }}
+QLabel#headerNote {{ color: {muted}; font-size: 13px; }}
 
 QFrame#carHeader {{
     background: {panel};
@@ -319,8 +319,8 @@ QFrame#carHeader {{
     border-radius: 8px;
 }}
 QFrame#carHeader QWidget {{ background: transparent; }}
-QLabel#carName {{ color: {fg}; font-size: 19px; font-weight: 800; }}
-QLabel#carBrand {{ color: {muted}; font-size: 12px; }}
+QLabel#carName {{ color: {fg}; font-size: 21px; font-weight: 800; }}
+QLabel#carBrand {{ color: {muted}; font-size: 14px; }}
 
 QFrame#footer {{ background: {panel}; border-top: 1px solid {border}; }}
 QFrame#footer QWidget {{ background: transparent; }}
@@ -397,10 +397,11 @@ QCheckBox::indicator:disabled {{ background: {bg_alt}; border-color: {border}; }
 
 /* ----------------------------------------------------------------- botones */
 QPushButton {{
-    background: {raised};
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {raised_hover}, stop:1 {raised});
     border: 1px solid {raised_border};
     border-radius: 6px;
-    padding: 6px 14px;
+    padding: 3px 10px;
+    min-height: 22px;
     font-weight: 600;
 }}
 QPushButton:hover {{ background: {raised_hover}; border-color: {accent}; }}
@@ -413,6 +414,8 @@ QPushButton#primary {{
     font-weight: 800;
     letter-spacing: 1px;
     text-transform: uppercase;
+    min-height: 24px;
+    padding: 3px 12px;
 }}
 QPushButton#primary:hover {{
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {accent_light}, stop:1 {accent});
@@ -429,12 +432,22 @@ QPushButton#headerButton {{
     background: {raised};
     border: 1px solid {raised_border};
     color: {fg};
-    padding: 5px 11px;
+    padding: 4px 10px;
 }}
-QPushButton#headerButton:hover {{ border-color: {accent}; color: {accent_light}; }}
+QPushButton#headerButton:hover {{ border-color: {accent}; color: {accent_light}; background: {gold_tint}; }}
+QPushButton#headerSearch {{
+    background: {panel_alt};
+    border: 1px solid {border};
+    border-radius: 6px;
+    color: {muted};
+    padding: 6px 12px;
+    text-align: left;
+}}
+QPushButton#headerSearch:hover {{ border-color: {accent}; color: {fg}; background: {gold_tint}; }}
+QPushButton#headerButton:pressed {{ background: {panel}; border-color: {accent_dark}; }}
 QPushButton#navButton {{
     background: transparent; border: 1px solid transparent; color: {muted};
-    border-radius: 7px; padding: 11px 12px; text-align: left; font-weight: 700;
+    border-radius: 7px; padding: 8px 12px; text-align: left; font-weight: 700;
 }}
 QPushButton#navButton:hover {{ background: {panel_alt}; color: {fg}; }}
 QPushButton#navButton:checked {{
@@ -449,44 +462,45 @@ QFrame#guideStrip {{ background: {bg_alt}; border: 1px solid {border}; border-le
 QFrame#guideStrip QWidget {{ background: transparent; }}
 QFrame#communityNotification {{ background: {gold_tint}; border: 1px solid {accent_dark}; border-left: 3px solid {accent}; border-radius: 0; }}
 QFrame#communityNotification QWidget {{ background: transparent; }}
-QLabel#communityBadge {{ color: {accent_light}; font-size: 10px; font-weight: 900; letter-spacing: 1px; }}
-QLabel#communityMessage {{ color: {fg}; font-size: 12px; }}
-QFrame#updateNotification {{ background: {panel_alt}; border: 1px solid {accent}; border-left: 3px solid {accent}; border-radius: 0; }}
-QFrame#updateNotification QWidget {{ background: transparent; }}
-QLabel#updateBadge {{ color: {bg_alt}; background: {accent}; font-size: 10px; font-weight: 900; letter-spacing: 1px; padding: 2px 7px; border-radius: 3px; }}
-QLabel#updateMessage {{ color: {fg}; font-size: 12px; font-weight: 700; }}
-QLabel#updateDetail {{ color: {muted}; font-size: 11px; }}
-QLabel#guideStripText {{ color: {muted}; font-size: 11px; font-weight: 600; }}
+QLabel#communityBadge {{ color: {accent_light}; font-size: 12px; font-weight: 900; letter-spacing: 1px; }}
+QLabel#communityMessage {{ color: {fg}; font-size: 14px; }}
+QLabel#guideStripText {{ color: {muted}; font-size: 13px; font-weight: 600; }}
 QFrame#footer {{ background: {panel}; border-top: 1px solid {border}; }}
 QLabel#integrationMark {{ color: {accent}; background: {bg}; border: 1px solid {accent_dark}; border-radius: 8px; font-weight: 900; }}
-QLabel#integrationTitle {{ color: {fg}; font-size: 10px; font-weight: 900; letter-spacing: 1.5px; }}
-QLabel#integrationStatus {{ font-size: 10px; }}
-QLabel#integrationPath {{ color: {muted}; font-size: 10px; }}
+QLabel#integrationTitle {{ color: {fg}; font-size: 12px; font-weight: 900; letter-spacing: 1.5px; }}
+QLabel#integrationStatus {{ font-size: 12px; }}
+QLabel#integrationPath {{ color: {muted}; font-size: 12px; }}
 QFrame#guideCard {{ background: {bg_alt}; border: 1px solid {border}; border-left: 3px solid {accent}; border-radius: 12px; }}
-QLabel#guideEyebrow {{ color: {accent}; font-weight: 800; font-size: 10px; letter-spacing: 2px; }}
-QLabel#guideTitle {{ color: {fg}; font-size: 23px; font-weight: 800; }}
-QLabel#guideSubtitle {{ color: {muted}; font-size: 12px; }}
-QLabel#guideStep {{ color: {accent_light}; font-size: 12px; font-weight: 900; letter-spacing: 1.5px; }}
-QLabel#guideBody {{ color: {fg}; font-size: 15px; line-height: 1.4; }}
-QLabel#guideProgress {{ color: {muted}; font-size: 10px; font-weight: 800; letter-spacing: 1.5px; }}
-QPushButton#sectionChip {{ background: {bg_alt}; color: {muted}; border: 1px solid {border}; border-radius: 14px; padding: 5px 10px; font-size: 10px; font-weight: 800; }}
-QLabel#pageEyebrow {{ color: {accent}; font-size: 10px; font-weight: 900; letter-spacing: 2px; }}
-QLabel#pageTitle {{ color: {fg}; font-size: 23px; font-weight: 800; }}
-QLabel#pageDescription {{ color: {muted}; font-size: 11px; }}
-QLabel#heroTitle {{ color: {fg}; font-size: 26px; font-weight: 900; font-style: italic; }}
-QLabel#heroSubtitle {{ color: {muted}; font-size: 12px; }}
-QLabel#sectionLabel {{ color: {accent}; font-size: 10px; font-weight: 900; letter-spacing: 1.5px; }}
-QPushButton#heroButton {{ background: {gold_tint}; color: {accent_light}; border: 1px solid {accent_dark}; border-radius: 7px; padding: 7px 12px; font-weight: 800; }}
+QLabel#guideEyebrow {{ color: {accent}; font-weight: 800; font-size: 12px; letter-spacing: 2px; }}
+QLabel#guideTitle {{ color: {fg}; font-size: 28px; font-weight: 800; }}
+QLabel#guideSubtitle {{ color: {muted}; font-size: 14px; }}
+QLabel#guideStep {{ color: {accent_light}; font-size: 14px; font-weight: 900; letter-spacing: 1.5px; }}
+QLabel#guideBody {{ color: {fg}; font-size: 16px; line-height: 1.4; }}
+QLabel#guideProgress {{ color: {muted}; font-size: 12px; font-weight: 800; letter-spacing: 1.5px; }}
+QPushButton#sectionChip {{ background: {bg_alt}; color: {muted}; border: 1px solid {border}; border-radius: 14px; padding: 5px 10px; font-size: 12px; font-weight: 800; }}
+QLabel#pageEyebrow {{ color: {accent}; font-size: 12px; font-weight: 900; letter-spacing: 2px; }}
+QLabel#pageTitle {{ color: {fg}; font-size: 24px; font-weight: 800; }}
+QLabel#pageDescription {{ color: {muted}; font-size: 13px; }}
+QLabel#heroTitle {{ color: {fg}; font-size: 30px; font-weight: 900; font-style: italic; }}
+QLabel#heroSubtitle {{ color: {muted}; font-size: 14px; }}
+QLabel#navSection {{ color: {accent}; font-size: 12px; font-weight: 900; letter-spacing: 1.5px; padding: 12px 10px 4px 10px; }}
+QLabel#sectionLabel {{ color: {accent}; font-size: 12px; font-weight: 900; letter-spacing: 1.5px; }}
+QLabel#navBrand {{ color: {accent_light}; font-size: 17px; font-weight: 900; letter-spacing: 3px; padding: 6px 10px 0 10px; }}
+QLabel#navBrandSub {{ color: {muted}; font-size: 11px; padding: 0 10px 8px 10px; }}
+QFrame#navRail QLabel#navCarStatus {{ background: {gold_tint}; color: {fg}; border: 1px solid {accent_dark}; border-left: 3px solid {accent}; border-radius: 8px; padding: 9px 10px; font-size: 13px; font-weight: 700; }}
+QPushButton#homeLink {{ background: transparent; color: {fg}; border: 1px solid transparent; border-radius: 6px; padding: 7px 10px; text-align: left; font-weight: 700; }}
+QPushButton#homeLink:hover {{ background: {panel_alt}; border-color: {border}; color: {accent_light}; }}
+QPushButton#heroButton {{ background: {gold_tint}; color: {accent_light}; border: 1px solid {accent_dark}; border-radius: 7px; padding: 5px 12px; font-weight: 800; }}
 QPushButton#heroButton:hover {{ background: {accent_dark}; color: {fg}; }}
-QCheckBox#guideStartup {{ color: {muted}; font-size: 11px; spacing: 7px; }}
-QPushButton#navButton {{ min-height: 40px; padding-left: 14px; }}
+QCheckBox#guideStartup {{ color: {muted}; font-size: 13px; spacing: 7px; }}
+QPushButton#navButton {{ min-height: 30px; padding-left: 12px; }}
 QFrame#workspaceCard {{ background: {bg_alt}; border: 1px solid {border}; border-radius: 10px; }}
 QWidget#pageHeading {{ background: transparent; }}
 QSlider#zoomSlider::groove:horizontal {{ height: 8px; background: {panel_alt}; border: 1px solid {border}; border-radius: 4px; }}
 QSlider#zoomSlider::sub-page:horizontal {{ background: {accent}; border-radius: 4px; }}
 QSlider#zoomSlider::handle:horizontal {{ width: 18px; height: 18px; margin: -6px 0; border-radius: 10px; background: {accent_light}; border: 2px solid {accent}; }}
 QSlider#zoomSlider::handle:horizontal:hover {{ background: #f2dfa6; }}
-QPushButton#saveButton {{ min-width: 142px; min-height: 36px; }}
+QPushButton#saveButton {{ min-width: 116px; min-height: 26px; }}
 
 /* ------------------------------------------------------------------ listas */
 QListWidget {{
@@ -529,10 +543,16 @@ QTabBar::tab {{
     font-weight: 700;
     letter-spacing: 1.2px;
     text-transform: uppercase;
-    font-size: 11px;
+    font-size: 13px;
 }}
 QTabBar::tab:hover {{ color: {fg}; border-bottom-color: {border}; }}
-QTabBar::tab:selected {{ color: {accent}; border-bottom-color: {accent}; }}
+QTabBar::tab:selected {{
+    color: {accent_light};
+    border-bottom-color: {accent};
+    background: {gold_tint};
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}}
 QTabBar::tab:disabled {{ color: #5b6472; }}
 
 /* ------------------------------------------------------------ varios / misc */
@@ -605,7 +625,7 @@ QFrame#dashboardChart {{
 }}
 QLabel#dashboardHeading {{
     color: {accent};
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 800;
     letter-spacing: 1.5px;
 }}
@@ -613,8 +633,8 @@ QListWidget::item {{ min-height: 30px; }}
 QPushButton#iconButton {{ padding: 5px 9px; font-size: 16px; font-weight: 800; }}
 QFrame#header {{ border-top: 2px solid {accent_light}; }}
 QFrame#previewCard QWidget {{ background: transparent; }}
-QLabel#previewTitle {{ color: {fg}; font-weight: 800; font-size: 14px; }}
-QLabel#previewSubtitle {{ color: {muted}; font-size: 11px; }}
+QLabel#previewTitle {{ color: {fg}; font-weight: 800; font-size: 15px; }}
+QLabel#previewSubtitle {{ color: {muted}; font-size: 13px; }}
 QLabel#previewBadge {{ background: transparent; }}
 QLabel#sectionRule {{ background: {border}; }}
 """

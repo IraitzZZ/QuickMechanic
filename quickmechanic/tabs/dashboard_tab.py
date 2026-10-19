@@ -1,9 +1,9 @@
 """Resumen de biblioteca y métricas calculadas, sin gráficos ni telemetría ficticia."""
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QGridLayout, QVBoxLayout
-from ..qt_i18n import QLabel, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout
+from ..qt_i18n import QLabel, QLineEdit, QPushButton, QWidget
 
 from .. import theme, widgets
 from ..ac_scanner import Car
@@ -13,11 +13,18 @@ from ..car_data import CarData
 class DashboardTab(QWidget):
     """Dashboard con datos de archivos locales y cálculos identificados como tales."""
 
+    carRequested = pyqtSignal(str)  # carpeta del coche
+    toolRequested = pyqtSignal(int)  # índice de pestaña
+    searchRequested = pyqtSignal(str)  # texto de búsqueda inicial
+    actionRequested = pyqtSignal(str)  # acción rápida: palette, random, export, sync
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
+
+        layout.addWidget(self._build_home())
 
         self.library_stats = widgets.StatRow()
         self.library_stats.add("installed", "Coches instalados", "", "accent")
@@ -59,6 +66,95 @@ class DashboardTab(QWidget):
         layout.addWidget(self.alerts)
         self._set_no_car()
         self.set_library([])
+        self.set_home([], [], [])
+
+    def _build_home(self) -> QWidget:
+        """Cabecera de inicio: búsqueda, acciones rápidas y accesos a recientes y favoritos."""
+        home = QWidget()
+        home_layout = QVBoxLayout(home)
+        home_layout.setContentsMargins(0, 0, 0, 0)
+        home_layout.setSpacing(10)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Buscar herramienta o acción… (Enter)")
+        self.search.setClearButtonEnabled(True)
+        self.search.returnPressed.connect(self._emit_search)
+        search_row.addWidget(self.search, 1)
+        search_button = QPushButton("Buscar")
+        search_button.clicked.connect(lambda _checked=False: self._emit_search())
+        search_row.addWidget(search_button)
+        home_layout.addLayout(search_row)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        for key, label, tip in (
+            ("palette", "Todas las herramientas", "Abrir el buscador de herramientas (Ctrl+K)"),
+            ("random", "Coche aleatorio", "Elegir al azar un coche de la lista (Ctrl+Shift+N)"),
+            ("export", "Exportar CSV", "Exportar la biblioteca visible a CSV (Ctrl+E)"),
+            ("sync", "Sincronizar biblioteca", "Volver a leer la carpeta de coches de Assetto Corsa"),
+        ):
+            button = QPushButton(label)
+            button.setObjectName("ghost")
+            button.setToolTip(tip)
+            button.clicked.connect(lambda _checked=False, action=key: self.actionRequested.emit(action))
+            actions.addWidget(button)
+        actions.addStretch(1)
+        home_layout.addLayout(actions)
+
+        cards = QHBoxLayout()
+        cards.setSpacing(10)
+        self.recent_panel, self._recent_box = self._card("Coches recientes")
+        self.favorite_panel, self._favorite_box = self._card("Favoritos")
+        self.tools_panel, self._tools_box = self._card("Herramientas recientes")
+        for panel in (self.recent_panel, self.favorite_panel, self.tools_panel):
+            cards.addWidget(panel, 1)
+        home_layout.addLayout(cards)
+        return home
+
+    def _card(self, title: str) -> tuple[widgets.Panel, QVBoxLayout]:
+        panel = widgets.Panel(title)
+        holder = QWidget()
+        box = QVBoxLayout(holder)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(4)
+        panel.add_widget(holder)
+        return panel, box
+
+    def _emit_search(self) -> None:
+        self.searchRequested.emit(self.search.text().strip())
+
+    def set_home(
+        self,
+        recent: list[tuple[str, str]],
+        favorites: list[tuple[str, str]],
+        tools: list[tuple[int, str]],
+    ) -> None:
+        """Rellena las tarjetas de inicio. Cada entrada es (valor para la señal, texto del botón)."""
+        self._fill_card(self._recent_box, recent, "Abre un coche para verlo aquí.", self.carRequested)
+        self._fill_card(self._favorite_box, favorites, "Marca coches con ★ para fijarlos aquí.", self.carRequested)
+        self._fill_card(self._tools_box, tools, "Las herramientas que abras aparecerán aquí.", self.toolRequested)
+
+    def _fill_card(self, box: QVBoxLayout, items: list, empty: str, signal) -> None:
+        while box.count():
+            item = box.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        if not items:
+            hint = QLabel(empty)
+            hint.setObjectName("pageDescription")
+            hint.setWordWrap(True)
+            box.addWidget(hint)
+            box.addStretch(1)
+            return
+        for value, text in items[:6]:
+            button = QPushButton(text)
+            button.setObjectName("homeLink")
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _checked=False, v=value, s=signal: s.emit(v))
+            box.addWidget(button)
+        box.addStretch(1)
 
     def set_library(self, cars: list[Car]) -> None:
         editable = sum(car.editable for car in cars)

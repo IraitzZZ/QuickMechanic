@@ -64,9 +64,16 @@ class GuiSmokeTest(unittest.TestCase):
         getter = mock.patch.object(main.settings, "get", return_value=None)
         getter.start()
         self.addCleanup(getter.stop)
+        # El taller (historial, versiones, setups) tampoco escribe en el perfil real:
+        # guardar desde un test no debe dejar rastro en %APPDATA%\QuickMechanic.
+        taller = mock.patch.object(main.garage, "root_dir", return_value=self.tmp / "perfil")
+        taller.start()
+        self.addCleanup(taller.stop)
 
         self.window = main.MainWindow(ac_root=self.tmp)
         self.addCleanup(self.window.deleteLater)
+        # Una carga en segundo plano no puede seguir viva cuando se destruye la ventana.
+        self.addCleanup(self._wait_for_car_load)
         from PyQt6.QtTest import QTest
         for _ in range(500):
             scan = self.window._scan_thread  # noqa: SLF001
@@ -74,10 +81,20 @@ class GuiSmokeTest(unittest.TestCase):
                 break
             QTest.qWait(10)
 
+    def _wait_for_car_load(self) -> None:
+        """Espera a que termine el desempaquetado en segundo plano (si lo hay)."""
+        from PyQt6.QtTest import QTest
+        for _ in range(1000):
+            if self.window._load_thread is None:  # noqa: SLF001
+                break
+            QTest.qWait(10)
+
     def select(self, name: str) -> None:
+        self._wait_for_car_load()
         for row, car in enumerate(self.window._shown):  # noqa: SLF001
             if car.name == name:
                 self.window.car_list.setCurrentRow(row)
+                self._wait_for_car_load()
                 return
         raise AssertionError(f"no se ha encontrado {name}")
 
@@ -361,6 +378,249 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertEqual(self.window.car_list.count(), 1)
         self.assertIn("★", self.window.car_list.item(0).text())
 
+    def test_ctrl_numero_cambia_de_pestana_y_alt_flechas_cambian_de_coche(self):
+        self.select("ks_test_car")
+        self.assertTrue(self.window.tabs.isTabEnabled(2))
+        self.window._go_to_tab(2)  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 2)
+        self.window._go_to_tab(999)  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 2)
+        self.window.car_list.setCurrentRow(0)
+        self._wait_for_car_load()  # el coche de la fila 0 se desempaqueta en segundo plano
+        self.window._step_car(1)  # noqa: SLF001
+        self.assertEqual(self.window.car_list.currentRow(), 1)
+        self._wait_for_car_load()  # el coche de la fila 1 puede necesitar desempaquetarse
+        self.window._step_car(1)  # noqa: SLF001
+        self.assertEqual(self.window.car_list.currentRow(), 0)
+        self.window._step_car(-1)  # noqa: SLF001
+        self.assertEqual(self.window.car_list.currentRow(), 1)
+
+    def test_los_atajos_ctrl_numero_estan_registrados(self):
+        from PyQt6.QtGui import QKeySequence, QShortcut
+
+        keys = {
+            shortcut.key().toString()
+            for shortcut in self.window.findChildren(QShortcut)
+        }
+        for number in range(1, 10):
+            self.assertIn(QKeySequence(f"Ctrl+{number}").toString(), keys)
+        self.assertIn(QKeySequence("Alt+Up").toString(), keys)
+        self.assertIn(QKeySequence("Alt+Down").toString(), keys)
+
+    def test_atajos_nuevos_estan_registrados(self):
+        from PyQt6.QtGui import QKeySequence, QShortcut
+
+        keys = {shortcut.key().toString() for shortcut in self.window.findChildren(QShortcut)}
+        for sequence in ("Ctrl+Tab", "Ctrl+Shift+Tab", "F1", "Ctrl+Shift+F", "Ctrl+Shift+C",
+                         "Ctrl+L", "Ctrl+Shift+H"):
+            self.assertIn(QKeySequence(sequence).toString(), keys)
+
+    def test_ctrl_tab_recorre_pestanas_saltando_las_deshabilitadas(self):
+        # Sin coche, las pestanas 1, 2, 3, 5, 6 y 7 estan deshabilitadas.
+        self.assertEqual(self.window.tabs.currentIndex(), 0)
+        self.window._cycle_tab(1)  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 4)
+        self.window._cycle_tab(1)  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 8)
+        self.window._cycle_tab(1)  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 0)
+        self.window._cycle_tab(-1)  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 8)
+
+    def test_pistas_de_atajo_en_los_tooltips_de_pestanas(self):
+        self.assertIn("(Ctrl+1)", self.window.tabs.tabToolTip(0))
+        self.assertIn("(Ctrl+9)", self.window.tabs.tabToolTip(8))
+
+    def test_ctrl_shift_f_limpia_busqueda_y_filtros(self):
+        self.window.search.setText("quick")
+        self.window.favorite_filter.setChecked(True)
+        self.window.editable_filter.setChecked(True)
+        self.window._clear_filters()  # noqa: SLF001
+        self.assertEqual(self.window.search.text(), "")
+        self.assertFalse(self.window.favorite_filter.isChecked())
+        self.assertFalse(self.window.editable_filter.isChecked())
+        self.assertEqual(self.window.car_list.count(), 2)
+        self.assertEqual(self.window.footer_status.text(), "Filtros borrados")
+
+    def test_ctrl_shift_c_copia_el_nombre_del_coche(self):
+        self.window._copy_car_name()  # noqa: SLF001
+        self.assertEqual(self.window.footer_status.text(), "No hay ning\u00fan coche seleccionado")
+        self.select("ks_test_car")
+        self.window._copy_car_name()  # noqa: SLF001
+        from PyQt6.QtWidgets import QApplication
+
+        self.assertEqual(QApplication.clipboard().text(), self.window._source.ui_name)  # noqa: SLF001
+
+    def test_coches_recientes_se_recuerdan_y_se_reabren_aunque_esten_filtrados(self):
+        self.window._recent_cars = []  # noqa: SLF001
+        self.window._show_recent_cars()  # noqa: SLF001
+        self.assertIn("Todav\u00eda no has abierto", self.window.footer_status.text())
+
+        self.select("ks_test_car")
+        self.assertEqual(self.window._recent_cars, [str(self.car_dir)])  # noqa: SLF001
+        self.settings_mock.assert_any_call("recent_cars", [str(self.car_dir)])
+        self.window._show_recent_cars()  # noqa: SLF001
+        self.assertEqual(len(self.window._recent_menu.actions()), 1)  # noqa: SLF001
+
+        # Con un filtro que oculta el coche, abrirlo desde recientes quita el filtro.
+        self.window.favorite_filter.setChecked(True)
+        self.assertEqual(self.window.car_list.count(), 0)
+        self.window._open_car_by_folder(str(self.car_dir))  # noqa: SLF001
+        self.assertFalse(self.window.favorite_filter.isChecked())
+        self.assertEqual(str(self.window._source.folder), str(self.car_dir))  # noqa: SLF001
+
+    def test_atajos_de_lista_y_recientes_estan_registrados(self):
+        from PyQt6.QtGui import QKeySequence, QShortcut
+
+        keys = {shortcut.key().toString() for shortcut in self.window.findChildren(QShortcut)}
+        for sequence in ("Ctrl+Shift+D", "Ctrl+Shift+E", "Ctrl+Shift+O", "Ctrl+Shift+P", "F5",
+                         "Esc", "Alt+Shift+Up", "Alt+Shift+Down", "Ctrl+Shift+N",
+                         "Ctrl+Shift+S", "Ctrl+Shift+L"):
+            self.assertIn(QKeySequence(sequence).toString(), keys)
+
+    def test_ctrl_shift_l_borra_el_historial_de_recientes(self):
+        self.window._recent_cars = [str(self.car_dir)]  # noqa: SLF001
+        self.window._clear_recent_cars()  # noqa: SLF001
+        self.assertEqual(self.window._recent_cars, [])  # noqa: SLF001
+        self.settings_mock.assert_any_call("recent_cars", [])
+        self.assertEqual(
+            self.window.footer_status.text(), "Historial de coches recientes borrado"
+        )
+
+    def test_atajos_de_ventana_y_lista_del_segundo_lote_estan_registrados(self):
+        from PyQt6.QtGui import QKeySequence, QShortcut
+
+        keys = {shortcut.key().toString() for shortcut in self.window.findChildren(QShortcut)}
+        for sequence in ("Ctrl+Home", "Ctrl+End", "Ctrl+Q", "Ctrl+,", "Ctrl+Shift+M",
+                         "Ctrl+Shift+A", "Ctrl+Shift+G", "Ctrl+Shift+K", "Ctrl+Shift+U",
+                         "Ctrl+Shift+Y", "Delete"):
+            self.assertIn(QKeySequence(sequence).toString(), keys)
+
+    def test_ctrl_home_y_end_van_al_primer_y_ultimo_coche(self):
+        self.window._go_edge_car(False)  # noqa: SLF001
+        self.assertEqual(self.window.car_list.currentRow(), self.window.car_list.count() - 1)
+        self.window._go_edge_car(True)  # noqa: SLF001
+        self.assertEqual(self.window.car_list.currentRow(), 0)
+
+    def test_ctrl_shift_k_cambia_el_orden_y_se_recuerda(self):
+        self.assertEqual(self.window._sort_mode, "name")  # noqa: SLF001
+        self.window._cycle_sort()  # noqa: SLF001
+        self.assertEqual(self.window._sort_mode, "favorites")  # noqa: SLF001
+        self.settings_mock.assert_any_call("sort_mode", "favorites")
+        self.assertIn(self.window.SORT_LABELS["favorites"], self.window.footer_status.text())
+
+    def test_orden_por_editables_pone_primero_los_coches_editables(self):
+        self.window._sort_mode = "editable"  # noqa: SLF001
+        self.window._apply_filter()  # noqa: SLF001
+        self.assertTrue(self.window._shown[0].editable)  # noqa: SLF001
+
+    def test_marca_de_cambios_sin_guardar_en_lista_y_titulo(self):
+        self.select("ks_test_car")
+        self.assertFalse(self.window.car_list.currentItem().text().startswith("\u25cf"))
+        self.window.motor_tab.limiter.setValue(7200)
+        self.assertTrue(self.window.car_list.currentItem().text().startswith("\u25cf "))
+        self.assertTrue(self.window.windowTitle().startswith("\u25cf "))
+
+        self.window._save()  # noqa: SLF001
+        self.assertFalse(self.window.car_list.currentItem().text().startswith("\u25cf"))
+        self.assertFalse(self.window.windowTitle().startswith("\u25cf "))
+
+    def test_guardar_muestra_la_hora_del_guardado_en_el_pie(self):
+        self.select("ks_test_car")
+        self.window.motor_tab.limiter.setValue(7200)
+        self.window._save()  # noqa: SLF001
+        self.assertRegex(self.window.footer_status.text(), r"^Guardado a las \d{2}:\d{2}: ")
+
+    def test_doble_clic_alterna_el_favorito(self):
+        self.select("ks_test_car")
+        # El manejador ignora el elemento: basta con emitir la senal de doble clic.
+        self.window.car_list.itemDoubleClicked.emit(None)
+        self.assertIn("ks_test_car", self.window._favorites)  # noqa: SLF001
+        self.window.car_list.itemDoubleClicked.emit(None)
+        self.assertNotIn("ks_test_car", self.window._favorites)  # noqa: SLF001
+
+    def test_menu_contextual_del_coche_se_construye(self):
+        self.select("ks_test_car")
+        rect = self.window.car_list.visualItemRect(self.window.car_list.currentItem())
+        with mock.patch.object(main.QMenu, "exec") as run:
+            self.window._car_list_menu(rect.center())  # noqa: SLF001
+        run.assert_called_once()
+
+    def test_ctrl_shift_u_quita_el_coche_actual_de_recientes(self):
+        self.select("ks_test_car")
+        self.assertIn(str(self.car_dir), self.window._recent_cars)  # noqa: SLF001
+        self.window._forget_recent_car()  # noqa: SLF001
+        self.assertNotIn(str(self.car_dir), self.window._recent_cars)  # noqa: SLF001
+        self.assertEqual(self.window.footer_status.text(), "Coche quitado de recientes")
+
+    def test_ctrl_shift_y_avisa_si_no_hay_coche_anterior(self):
+        with mock.patch.object(main.settings, "get", return_value=""):
+            self.window._open_last_car()  # noqa: SLF001
+        self.assertIn("Todav\u00eda no hay", self.window.footer_status.text())
+
+    def test_ctrl_shift_m_oculta_a_la_bandeja_y_ctrl_q_sale(self):
+        self.window._tray = mock.Mock()  # noqa: SLF001
+        with mock.patch.object(self.window, "hide") as hide:
+            self.window._minimize_to_tray()  # noqa: SLF001
+        hide.assert_called_once()
+        with mock.patch.object(self.window, "_exit_from_tray") as leave:
+            self.window._quit_app()  # noqa: SLF001
+        leave.assert_called_once()
+
+    def test_ctrl_shift_a_abre_la_carpeta_de_assetto_corsa(self):
+        with mock.patch.object(main.QDesktopServices, "openUrl") as opener:
+            self.window._open_ac_folder()  # noqa: SLF001
+        opener.assert_called_once()
+
+    def test_enter_en_el_buscador_pasa_el_foco_a_la_lista(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+
+        self.window.show()
+        self.addCleanup(self.window.hide)
+        self.window.activateWindow()
+        QTest.qWaitForWindowActive(self.window, 2000)
+        self.window.search.setFocus()
+        self.assertTrue(self.window.search.hasFocus())
+        QTest.keyClick(self.window.search, Qt.Key.Key_Return)
+        self.assertTrue(self.window.car_list.hasFocus())
+
+    def test_busqueda_y_filtros_se_guardan_y_se_restauran(self):
+        self.window.search.setText("quick")
+        self.window.favorite_filter.setChecked(True)
+        self.window.editable_filter.setChecked(False)
+        self.window._save_filters()  # noqa: SLF001
+        self.settings_mock.assert_any_call("search_text", "quick")
+        self.settings_mock.assert_any_call("filter_favorites", True)
+        self.settings_mock.assert_any_call("filter_editable", False)
+
+        saved = {"search_text": "ks", "filter_favorites": False, "filter_editable": True}
+        self.window.search.clear()
+        self.window.favorite_filter.setChecked(True)
+        self.window.editable_filter.setChecked(False)
+        with mock.patch.object(main.settings, "get", side_effect=lambda key, default=None: saved.get(key, default)):
+            self.window._restore_filters()  # noqa: SLF001
+        self.assertEqual(self.window.search.text(), "ks")
+        self.assertFalse(self.window.favorite_filter.isChecked())
+        self.assertTrue(self.window.editable_filter.isChecked())
+
+    def test_el_ultimo_coche_abierto_se_selecciona_al_volver(self):
+        self.window.car_list.setCurrentRow(-1)
+        with mock.patch.object(main.settings, "get", return_value=str(self.car_dir)):
+            self.window._select_last_car()  # noqa: SLF001
+        self.assertEqual(str(self.window._source.folder), str(self.car_dir))  # noqa: SLF001
+
+    def test_ultima_pestana_se_restaura_al_arrancar(self):
+        self.window.tabs.setCurrentIndex(0)
+        with mock.patch.object(main.settings, "get", return_value=4):
+            self.window._restore_last_tab()  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 4)
+        # Una pestana deshabilitada (sin coche) no se restaura.
+        self.window.tabs.setCurrentIndex(0)
+        with mock.patch.object(main.settings, "get", return_value=2):
+            self.window._restore_last_tab()  # noqa: SLF001
+        self.assertEqual(self.window.tabs.currentIndex(), 0)
+
     def test_cerrar_va_a_bandeja_pero_salir_es_explicito(self):
         tray = mock.Mock()
         self.window._tray = tray  # noqa: SLF001
@@ -422,7 +682,7 @@ class GuiSmokeTest(unittest.TestCase):
     def test_navegacion_lateral_y_conexion_local_con_cm(self):
         self.select("ks_test_car")
         self.assertEqual(self.window.tabs.tabText(0), "Resumen")
-        self.assertEqual(self.window.tabs.count(), 7)
+        self.assertEqual(self.window.tabs.count(), 10)
         self.assertFalse(hasattr(self.window.dashboard_tab, "power_plot"))
         self.assertFalse(hasattr(self.window.gear_tab, "plot"))
         self.assertFalse(hasattr(self.window.motor_tab, "plot"))
@@ -432,11 +692,82 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertGreater(self.window.motor_tab.curve_table.rowCount(), 0)
         self.window.nav_group.button(5).click()
         self.assertEqual(self.window.tabs.currentIndex(), 5)
+        self.window.nav_group.button(8).click()
+        self.assertEqual(self.window.tabs.currentIndex(), 8)
         self.assertEqual(self.window.cm_panel.open_button.isEnabled(), self.window.content_manager_path is not None)
         if self.window.content_manager_path is None:
             self.assertIn("No encontrado", self.window.cm_panel.path_label.text())
         else:
             self.assertIn("DETECTADO", self.window.cm_panel.status.text())
+
+    def test_pestana_circuitos_muestra_layout_y_configuracion_sin_escribir(self):
+        import json
+        from PyQt6.QtTest import QTest
+
+        track = self.tmp / "content" / "tracks" / "test_track"
+        (track / "ui").mkdir(parents=True)
+        (track / "club" / "data").mkdir(parents=True)
+        (track / "ui" / "ui_track.json").write_text(
+            json.dumps({"name": "Test Track", "country": "Spain"}), encoding="utf-8"
+        )
+        (track / "models_club.ini").write_text("[MODEL_0]\nFILE=club.kn5\n", encoding="utf-8")
+        (track / "club" / "data" / "surfaces.ini").write_text(
+            "[SURFACE_0]\nKEY=ROAD\nFRICTION=0.95\n", encoding="utf-8"
+        )
+        original = (track / "club" / "data" / "surfaces.ini").read_bytes()
+
+        self.window._refresh_tracks()  # noqa: SLF001
+        tab = self.window.track_tab
+        self.assertEqual(tab.track_list.count(), 1)
+        self.assertEqual(tab.track_title.text(), "Test Track")
+        self.assertEqual(tab.layout_list.count(), 1)
+        self.assertEqual(tab.file_list.count(), 2)
+        self.assertIn("ROAD", tab.ini_view.toPlainText())
+        tab.ini_filter.setText("FRICTION")
+        QTest.qWait(180)
+        self.assertIn("FRICTION", tab.ini_view.toPlainText())
+        self.assertTrue(tab.value_spin.isEnabled())
+        self.assertEqual(tab.value_spin.value(), 0.95)
+        # La lectura/filtrado no vuelve a cargar ni cambia la firma del archivo.
+        stale_hash = tab._ini_sha256  # noqa: SLF001
+        (track / "club" / "data" / "surfaces.ini").write_text(
+            "[SURFACE_0]\nKEY=ROAD\nFRICTION=0.97\n", encoding="utf-8"
+        )
+        tab.ini_filter.setText("KEY")
+        QTest.qWait(180)
+        self.assertEqual(tab._ini_sha256, stale_hash)  # noqa: SLF001
+        tab.ini_filter.setText("FRICTION")
+        QTest.qWait(180)
+        self.assertEqual(tab.value_spin.value(), 0.95)
+        tab.value_spin.setValue(1.05)
+        self.assertTrue(tab.save_value_button.isEnabled())
+        from quickmechanic import track_tab
+        with mock.patch.object(track_tab.QMessageBox, "warning") as warning:
+            tab.save_value_button.click()
+        warning.assert_called_once()
+        ini_path = track / "club" / "data" / "surfaces.ini"
+        self.assertIn("FRICTION=0.97", ini_path.read_text(encoding="utf-8"))
+        tab._select_ini(tab.file_list.currentRow())  # noqa: SLF001
+        self.assertEqual(tab.value_spin.value(), 0.97)
+        tab.value_spin.setValue(1.05)
+        tab.save_value_button.click()
+        self.assertIn("FRICTION=1.05", ini_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(list(ini_path.parent.glob("surfaces.ini.qm-*.bak"))), 1)
+        self.window.nav_group.button(8).click()
+        self.assertEqual(self.window.tabs.currentIndex(), 8)
+        from PyQt6.QtCore import QUrl
+        with mock.patch.object(main.QDesktopServices, "openUrl", return_value=True) as open_url:
+            tab.open_ini_button.click()
+        open_url.assert_called_once()
+        self.assertEqual(open_url.call_args.args[0], QUrl.fromLocalFile(str(track / "club" / "data" / "surfaces.ini")))
+        self.assertNotEqual(ini_path.read_bytes(), original)
+
+        # Refrescar conserva el circuito recien instalado sin bloquear el usuario.
+        second = self.tmp / "content" / "tracks" / "second_track"
+        (second / "data").mkdir(parents=True)
+        (second / "data" / "surfaces.ini").write_text("[SURFACE_0]\nFRICTION=0.9\n", encoding="utf-8")
+        tab.refresh_button.click()
+        self.assertEqual(tab.track_list.count(), 2)
 
     def test_asistencias_de_coche_se_muestran_y_se_guardan(self):
         self.select("ks_test_car")
@@ -507,84 +838,6 @@ class GuiSmokeTest(unittest.TestCase):
         self.assertIn("--ac-root", argumentos)
         self.assertNotIn("--background", argumentos)
         self.assertNotIn("--selftest", main.relaunch_command(["--selftest"])[1])
-
-    # ------------------------------------------------------ auto-actualizaciones
-    def aviso_de_version(self):
-        from quickmechanic import updates
-
-        return updates.UpdateInfo(
-            tag="v0.9.0",
-            version=(0, 9, 0),
-            name="Quick Mechanic 0.9.0",
-            notes="Idioma y AWD.",
-            page_url="https://example.test/release",
-            assets=(updates.UpdateAsset("Setup.exe", "https://example.test/Setup.exe", 4),),
-        )
-
-    def test_aviso_de_version_nueva_es_persistente_hasta_cerrarlo(self):
-        self.window._on_update_checked(self.aviso_de_version())  # noqa: SLF001
-        aviso = self.window.update_notification
-        self.assertFalse(aviso.isHidden())
-        self.assertIn("0.9.0", aviso.message.text())
-        self.assertIn("0.9.0", self.window.footer_status.text())
-        self.assertTrue(aviso.download_button.isEnabled())
-        aviso.dismiss_button.click()
-        self.assertTrue(aviso.isHidden())
-        self.settings_mock.assert_any_call("skipped_update", "v0.9.0")
-
-    def test_una_version_descartada_no_insiste(self):
-        self.window._skipped_update = "v0.9.0"  # noqa: SLF001
-        self.window._on_update_checked(self.aviso_de_version())  # noqa: SLF001
-        self.assertTrue(self.window.update_notification.isHidden())
-
-    def test_release_sin_instalador_avisa_y_no_descarga(self):
-        from quickmechanic import updates
-
-        vacia = updates.UpdateInfo("v0.9.0", (0, 9, 0), "n", "", "https://example.test", ())
-        with mock.patch.object(main.QMessageBox, "information") as aviso:
-            self.window._on_update_checked(vacia)  # noqa: SLF001
-            self.window._start_update_download()  # noqa: SLF001
-        self.assertEqual(aviso.call_count, 1)
-        self.assertIsNone(self.window._download_thread)  # noqa: SLF001
-
-    def test_descargar_no_ejecuta_ni_abre_nada_solo(self):
-        from quickmechanic import updates
-
-        with mock.patch.object(updates.QDesktopServices, "openUrl") as abrir:
-            self.window._on_update_downloaded(Path(tempfile.gettempdir()) / "Setup.exe")  # noqa: SLF001
-        abrir.assert_not_called()
-        self.assertIn("Setup.exe", self.window.footer_status.text())
-        self.assertEqual(
-            self.window.update_notification.download_button.text(), "Abrir instalador"
-        )
-
-    def test_dos_comprobaciones_seguidas_no_tocan_un_hilo_ya_terminado(self):
-        from PyQt6.QtCore import pyqtSlot
-        from PyQt6.QtTest import QTest
-
-        from quickmechanic import updates
-
-        class WorkerFalso(updates.UpdateWorker):
-            @pyqtSlot()
-            def run(self) -> None:
-                self.finished.emit(None)
-
-        with mock.patch.object(main.updates, "UpdateWorker", WorkerFalso):
-            for _ in range(2):
-                self.window._check_updates(force=True)  # noqa: SLF001
-                for _ in range(200):
-                    if self.window._update_thread is None:  # noqa: SLF001
-                        break
-                    QTest.qWait(10)
-                self.assertIsNone(self.window._update_thread)  # noqa: SLF001
-
-    def test_error_de_descarga_se_queda_en_el_aviso_con_reintento(self):
-        self.window._on_update_checked(self.aviso_de_version())  # noqa: SLF001
-        self.window._on_download_failed("sin internet")  # noqa: SLF001
-        aviso = self.window.update_notification
-        self.assertFalse(aviso.isHidden())
-        self.assertIn("sin internet", aviso.detail.text())
-        self.assertEqual(aviso.download_button.text(), "Reintentar descarga")
 
     # ------------------------------------------------------- traccion total AWD
     def test_awd_solo_aparece_si_el_coche_declara_secciones(self):

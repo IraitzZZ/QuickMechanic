@@ -6,6 +6,7 @@ from .dashboard_tab import DashboardTab
 from .engine_tab import MotorTab
 from .gearbox_tab import GearboxTab
 from .info_tab import InfoTab
+from .lab_tab import LabTab
 
 __all__ = [
     "DashboardTab",
@@ -15,4 +16,5 @@ __all__ = [
     "InfoTab",
     "AidsTab",
     "AdvancedTab",
+    "LabTab",
 ]

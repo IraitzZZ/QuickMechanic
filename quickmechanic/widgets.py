@@ -155,6 +155,7 @@ class StatTile(QFrame):
 
         self.title_label = QLabel(title.upper())
         self.title_label.setObjectName("statTitle")
+        self.title_label.setWordWrap(True)
         layout.addWidget(self.title_label)
 
         row = QHBoxLayout()
@@ -230,6 +231,8 @@ class Panel(QGroupBox):
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         text = QLabel(label)
+        # Con wordWrap el texto cede ancho en vez de imponer el minimo de la columna.
+        text.setWordWrap(True)
         if tip:
             text.setToolTip(tip)
             widget.setToolTip(widget.toolTip() or tip)

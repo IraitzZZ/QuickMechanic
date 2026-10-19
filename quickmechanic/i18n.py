@@ -58,6 +58,8 @@ CORE_TRANSLATED_MODULES = (
     "quickmechanic/tabs/info_tab.py",
     "quickmechanic/tabs/aids_tab.py",
     "quickmechanic/tabs/advanced_tab.py",
+    "quickmechanic/track_tab.py",
+    "quickmechanic/tabs/lab_tab.py",
 )
 
 _current = DEFAULT_LANGUAGE

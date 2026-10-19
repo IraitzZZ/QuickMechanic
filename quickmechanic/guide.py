@@ -17,16 +17,17 @@ class QuickGuideDialog(QDialog):
 
     PAGES = (
         ("01  ·  TU GARAJE", "Busca un coche por nombre o marca y guárdalo en favoritos. "
-         "La previsualización usa la imagen preview de la skin seleccionada; amplíala desde su tarjeta."),
+         "La previsualización usa la imagen preview de la skin seleccionada; amplíala desde su tarjeta. "
+         "Teclado: Ctrl+1 a 9 o Ctrl+Tab cambian de pestaña, Alt+Arriba/Abajo cambian de coche, "
+         "Ctrl+L va a la lista y F1 abre esta guía."),
         ("02  ·  AJUSTA CON CRITERIO", "Motor: consulta los valores leídos de power.lut y edita sus puntos en la tabla. "
          "Caja: ajusta marchas y grupo final. Chasis: prueba muelles, amortiguadores, geometría, frenos y presiones con sus unidades reales."),
         ("03  ·  PERFILES Y CAMBIOS", "Guarda una configuración como perfil, compara resultados en el resumen y usa "
          "Ctrl+Z / Ctrl+Y para deshacer o rehacer. Nada se escribe en el juego hasta pulsar Guardar."),
         ("04  ·  PROTEGE EL ORIGINAL", "Antes de guardar crea una copia ZIP y conserva el .bak original y el formato. Los coches con data.acd "
          "requieren extraer data con Content Manager; Quick Mechanic no modifica data.acd."),
-        ("05  ·  COMUNIDAD Y CONTENT MANAGER", "Abre Discord para encontrar ayuda y avisos de nuevas versiones. "
-         "Content Manager instala o extrae contenido; pulsa Sincronizar coches para refrescar la biblioteca. "
-         "Quick Mechanic no descarga ni instala actualizaciones automáticamente."),
+        ("05  ·  COMUNIDAD Y CONTENT MANAGER", "Abre Discord para encontrar ayuda y novedades. "
+         "Content Manager instala o extrae contenido; pulsa Sincronizar coches para refrescar la biblioteca."),
     )
 
     def __init__(
@@ -67,7 +68,7 @@ class QuickGuideDialog(QDialog):
         root.addLayout(hero)
 
         community = QHBoxLayout()
-        community_note = QLabel("COMUNIDAD, AYUDA Y AVISOS DE NUEVAS VERSIONES · EL ENLACE ABRE DISCORD")
+        community_note = QLabel("COMUNIDAD Y AYUDA · EL ENLACE ABRE DISCORD")
         community_note.setObjectName("guideEyebrow")
         community.addWidget(community_note, 1)
         self.discord_button = QPushButton("Abrir Discord  ↗")

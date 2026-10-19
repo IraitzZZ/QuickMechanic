@@ -58,7 +58,8 @@ class TranslatorTest(unittest.TestCase):
         with mock.patch.object(i18n.settings, "get", return_value="en"):
             self.assertEqual(i18n.load_saved_language(), "en")
         self.assertEqual(i18n.load_saved_language({"language": "EN"}), "en")
-        self.assertEqual(i18n.load_saved_language({}), "es")
+        with mock.patch.object(i18n.settings, "get", return_value=None):
+            self.assertEqual(i18n.load_saved_language({}), "es")
 
     def test_etiquetas_de_idioma_legibles(self) -> None:
         self.assertEqual(i18n.language_label("es"), "Español")

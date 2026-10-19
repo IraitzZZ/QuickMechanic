@@ -14,7 +14,8 @@ set "ICON_ARGS="
 if exist "icono.ico" set "ICON_ARGS=--icon=icono.ico --add-data=icono.ico;."
 python -m PyInstaller --noconfirm --clean --onefile --windowed ^
     --name QuickMechanic --paths . ^
-    %ICON_ARGS% --exclude-module PyQt6.QtWebEngineCore launcher.py || goto :error
+    %ICON_ARGS% --add-data "tools\quickbms;tools\quickbms" --add-data "tools\assetto_corsa_acd.bms;tools" --add-data "licenses;licenses" ^
+    --exclude-module PyQt6.QtWebEngineCore launcher.py || goto :error
 
 echo.
 echo Listo. El ejecutable portable esta en: dist\QuickMechanic.exe

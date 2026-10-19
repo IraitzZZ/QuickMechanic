@@ -40,6 +40,15 @@ class PresetStorageTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             presets.save_preset("car", "setup", {"version": 99})
 
+    def test_rechaza_perfil_editado_o_sin_firma(self):
+        target = Path(self.temp.name) / "firmado.json"
+        presets.export_preset(target, self.snapshot)
+        data = json.loads(target.read_text(encoding="utf-8"))
+        data["values"]["car.ini"]["BASIC"]["TOTALMASS"] = "500"
+        target.write_text(json.dumps(data), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            presets.import_preset(target)
+
     def test_exporta_e_importa_json(self):
         target = Path(self.temp.name) / "export.json"
         presets.export_preset(target, self.snapshot)

@@ -6,7 +6,8 @@ lo que Quick Mechanic ha leido del coche.
 """
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QTextBrowser, QVBoxLayout
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QTextBrowser, QVBoxLayout
 from ..qt_i18n import QWidget
 
 from .. import skins, theme
@@ -44,10 +45,22 @@ def _esc(text: str) -> str:
 class InfoTab(QWidget):
     """Resumen y diagnostico del coche seleccionado."""
 
+    repair_requested = pyqtSignal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
+        actions = QHBoxLayout()
+        actions.addStretch(1)
+        self.repair_button = QPushButton("Revisar y reparar datos…")
+        self.repair_button.setToolTip(
+            "Busca errores en car.ini y aero.ini. Pide confirmacion y guarda una copia .bak antes de tocar nada."
+        )
+        self.repair_button.setEnabled(False)
+        self.repair_button.clicked.connect(lambda: self.repair_requested.emit())
+        actions.addWidget(self.repair_button)
+        layout.addLayout(actions)
         self.view = QTextBrowser()
         self.view.setOpenExternalLinks(False)
         layout.addWidget(self.view)
@@ -58,6 +71,7 @@ class InfoTab(QWidget):
         status: str = "",
         meta: skins.CarMeta | None = None,
     ) -> None:
+        self.repair_button.setEnabled(car is not None and car.editable)
         self.view.setHtml(self._html(car, status, meta))
 
     # ------------------------------------------------------------------ vistas

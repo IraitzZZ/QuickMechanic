@@ -6,6 +6,7 @@ import math
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -101,6 +102,7 @@ class MotorTab(QWidget):
         button_layout = QHBoxLayout(buttons)
         button_layout.setContentsMargins(0, 0, 0, 0)
         self.reset_curve = QPushButton("Curva original")
+        self.reset_curve.setMaximumWidth(180)
         self.reset_curve.setToolTip("Deja el multiplicador en 1.0 sin tocar el fichero")
         button_layout.addWidget(self.reset_curve)
         self.curve_panel.add_widget(buttons)
@@ -117,12 +119,16 @@ class MotorTab(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidget(column)
+        scroll.setMinimumWidth(330)
+        scroll.setMaximumWidth(380)
         root.addWidget(scroll, 0)
 
         # ------------------------------------------------------------- tabla de curva editable
-        right = widgets.Panel("Curva power.lut · editor avanzado de puntos")
+        # Titulo corto: un QGroupBox no puede encogerse por debajo del ancho de su titulo.
+        right = widgets.Panel("Curva power.lut")
         right.add_note(
             "Los valores se leen directamente de power.lut. Editar el par de un punto cambia "
             "solo ese valor; no hay interpolación ni mediciones de pista.", "info"
@@ -132,9 +138,13 @@ class MotorTab(QWidget):
         self.curve_table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed)
         self.curve_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.curve_table.horizontalHeader().setStretchLastSection(True)
-        self.curve_table.horizontalHeader().setSectionResizeMode(0, self.curve_table.horizontalHeader().ResizeMode.ResizeToContents)
-        self.curve_table.horizontalHeader().setSectionResizeMode(1, self.curve_table.horizontalHeader().ResizeMode.ResizeToContents)
+        # Columnas proporcionales: con ResizeToContents la tabla empujaba la ventana mas alla de su ancho.
+        self.curve_table.horizontalHeader().setSectionResizeMode(0, self.curve_table.horizontalHeader().ResizeMode.Stretch)
+        self.curve_table.horizontalHeader().setSectionResizeMode(1, self.curve_table.horizontalHeader().ResizeMode.Stretch)
         self.curve_table.verticalHeader().setVisible(False)
+        # Ancho minimo explicito: la tabla no debe imponer su tamano de contenido a la ventana.
+        self.curve_table.setMinimumWidth(180)
+        self.curve_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         right.add_widget(self.curve_table)
         root.addWidget(right, 1)
         self.curve_table.itemChanged.connect(self._on_curve_cell_changed)
@@ -253,6 +263,7 @@ class MotorTab(QWidget):
             panel = widgets.Panel("Turbo")
             panel.add_note("Coche atmosferico: engine.ini no tiene ninguna seccion [TURBO_n].", "info")
             add = QPushButton("Anadir turbo ([TURBO_0] con valores de Kunos)")
+            add.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             add.clicked.connect(self._add_turbo)
             panel.add_widget(add)
             panel.add_note(
@@ -280,6 +291,7 @@ class MotorTab(QWidget):
             panel.add(label, field)
 
         cockpit = QCheckBox("Ajustable desde el cockpit")
+        cockpit.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         cockpit.setToolTip("COCKPIT_ADJUSTABLE: permite mover el boost con un mando en pista")
         cockpit.setChecked(turbo.cockpit_adjustable)
         cockpit.toggled.connect(self._store_turbo)
@@ -290,6 +302,7 @@ class MotorTab(QWidget):
         self.turbo_estimate = panel.add_note("", "dato")
 
         remove = QPushButton("Quitar turbo (comenta la seccion)")
+        remove.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         remove.clicked.connect(self._remove_turbo)
         panel.add_widget(remove)
 

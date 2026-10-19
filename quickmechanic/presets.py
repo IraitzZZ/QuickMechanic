@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from . import settings
+from .integrity import SIGNATURE_FIELD, sign_payload, verify_payload
 
 __all__ = ["preset_dir", "list_presets", "save_preset", "load_preset", "delete_preset", "export_preset", "import_preset"]
 
@@ -75,14 +76,18 @@ def export_preset(path: str | Path, snapshot: dict) -> Path:
         target = target.with_suffix(".json")
     if not isinstance(snapshot, dict) or snapshot.get("version") != 1:
         raise ValueError("El perfil no tiene un formato compatible")
-    target.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
+    signed = sign_payload(snapshot)
+    target.write_text(json.dumps(signed, indent=2, ensure_ascii=False), encoding="utf-8")
     return target
 
 
 def import_preset(path: str | Path) -> dict:
-    snapshot = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(snapshot, dict) or snapshot.get("version") != 1:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("version") != 1:
         raise ValueError("El fichero no contiene un perfil Quick Mechanic compatible")
+    if not verify_payload(data):
+        raise ValueError("El perfil no está firmado por Quick Mechanic o ha sido modificado")
+    snapshot = {key: value for key, value in data.items() if key != SIGNATURE_FIELD}
     if not isinstance(snapshot.get("values", {}), dict):
         raise ValueError("El perfil contiene ajustes no válidos")
     return snapshot

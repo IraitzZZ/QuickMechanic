@@ -17,12 +17,26 @@ __all__ = ["EN_EXACT", "EN_TEMPLATES", "UI_IGNORED"]
 
 #: Identificadores internos (no texto visible): nombres de objeto, claves y codigos.
 UI_IGNORED: frozenset[str] = frozenset({
+    "headerSearch",
     "QuickMechanic", "version", "favorites", "win32", "cars", "content", "ascii",
     "utf-8-sig", "tabs", "accent", "info", "muted", "dato", "aviso", "peligro",
     "gold", "file", "abs", "cut", "rpm", "gears", "final", "top", "drive",
     "power", "torque", "mass", "ratio", "installed", "editable", "locked",
     "available", "present", "active", "skins", "motor", "sonido", "transmisión",
     "fitment", "data", "TODO", "DPI",
+    # Identificadores de la pestana Taller (claves de fila, series de la grafica).
+    "zero100", "zero200", "accel", "brake", "label", "points", "markers", "utf-8",
+    # Atajos de teclado y formatos de archivo (no se traducen).
+    "Ctrl+T", "Ctrl+P", "Ctrl+R", "Ctrl+I", "Ctrl+Shift+B", "Ctrl+D", "Ctrl+E",
+    "Ctrl+F", "Ctrl+S", "Alt+Up", "Alt+Down", "Ctrl+Tab", "Ctrl+Shift+Tab", "Ctrl+Shift+F", "Ctrl+Shift+C",
+    "Ctrl+Shift+H", "Ctrl+Shift+L", "Ctrl+L", "F1", "txt", "html", "json", "qmsetup", "csv",
+    "Ctrl+Shift+D", "Ctrl+Shift+E", "Ctrl+Shift+O", "Ctrl+Shift+P", "Ctrl+Shift+N",
+    "Ctrl+Shift+S", "Alt+Shift+Up", "Alt+Shift+Down", "F5", "Esc",
+    "Ctrl+Home", "Ctrl+End", "Ctrl+Q", "Ctrl+,", "Ctrl+Shift+M", "Ctrl+Shift+A", "Ctrl+Shift+G",
+    "Ctrl+Shift+K", "Ctrl+Shift+U", "Ctrl+Shift+Y", "Delete", "name", "recent",
+    # Palabras clave de la paleta Ctrl+K (solo sirven para encontrar comandos) y nombres internos.
+    "navSection", "Ctrl+K", "filtrar lista coleccion", "excel hoja", "estrella",
+    "grabar escribir", "atras", "adelante",
     # Estilos y nombres de objeto de Qt.
     "iconButton", "sectionLabel", "previewSubtitle", "banner", "pageEyebrow",
     "pageTitle", "pageDescription", "pageHeading", "navRail", "dashboardHeading",
@@ -34,21 +48,300 @@ UI_IGNORED: frozenset[str] = frozenset({
     "guideStartup", "integrationCard", "integrationMark", "integrationTitle",
     "integrationStatus", "integrationPath", "appStripe", "headerButton",
     "pill", "statTile", "statTitle", "statValue", "statUnit", "previewCard",
-    "previewBadge", "previewTitle", "previewViewport", "previewArea", "zoomSlider",
+    "previewBadge", "previewTitle", "previewViewport", "previewArea",    "zoomSlider", "navBrand", "navBrandSub", "navCarStatus", "homeLink",
+
     # Ayudantes de widgets (nombres de funcion/clase, no texto).
     "dspin", "ispin", "Panel", "note", "heading", "GridView", "BrandMark",
     "Pill", "StatTile", "StatRow", "CarPreview", "sectionRule",
     # Atajos de teclado, rutas de ejemplo y titulos que ya estan en ingles.
     "Ctrl+D", "Ctrl+S", "Ctrl+F", "Ctrl+E", "Ctrl+Y", "content manager.exe",
-    "frozen", "quickmechanic", "ghost", "CONTENT MANAGER", "PERFORMANCE OVERVIEW", "POWERTRAIN LAB",
+    "frozen", "quickmechanic", "ghost", "palette", "random", "export", "sync",
+    "QUICK MECHANIC", "CONTENT MANAGER", "PERFORMANCE OVERVIEW", "POWERTRAIN LAB",
     "GEARBOX & RATIOS", "CHASSIS SETUP", "VEHICLE INSPECTION", "DRIVER AIDS",
     "EXPERT PARAMETERS", "Guardado: ", " con cambios sin guardar: ", "01  /  ",
 })
 
 EN_EXACT: dict[str, str] = {
+    "Taller": "Workshop",
+    "Taller de ajuste para Assetto Corsa": "Tuning shop for Assetto Corsa",
+    "⌕    Buscar herramienta": "⌕    Search tool",
+    "Buscar una herramienta o acción (Ctrl+K)": "Search for a tool or action (Ctrl+K)",
+    "Editable · data/ extraída": "Editable · data/ extracted",
+    "Bloqueado · data.acd": "Locked · data.acd",
+    "Sin carpeta data/": "No data/ folder",
+    "Buscar herramienta o acción… (Enter)": "Search tool or action… (Enter)",
+    "Buscar": "Search",
+    "Todas las herramientas": "All tools",
+    "Abrir el buscador de herramientas (Ctrl+K)": "Open the tool search (Ctrl+K)",
+    "Coche aleatorio": "Random car",
+    "Elegir al azar un coche de la lista (Ctrl+Shift+N)": "Pick a random car from the list (Ctrl+Shift+N)",
+    "Exportar CSV": "Export CSV",
+    "Exportar la biblioteca visible a CSV (Ctrl+E)": "Export the visible library to CSV (Ctrl+E)",
+    "Sincronizar biblioteca": "Sync library",
+    "Volver a leer la carpeta de coches de Assetto Corsa": "Re-read the Assetto Corsa cars folder",
+    "Coches recientes": "Recent cars",
+    "Favoritos": "Favorites",
+    "Herramientas recientes": "Recent tools",
+    "Abre un coche para verlo aquí.": "Open a car to see it here.",
+    "Marca coches con ★ para fijarlos aquí.": "Star cars with ★ to pin them here.",
+    "Las herramientas que abras aparecerán aquí.": "Tools you open will appear here.",
+    "Selecciona un coche para usar estas mejoras.": "Select a car to use these upgrades.",
+    "Este coche no tiene carpeta data/. Si tiene data.acd se extrae al seleccionarlo.":
+        "This car has no data/ folder. If it has data.acd, it is extracted when selected.",
+    "Perfiles de mejora": "Upgrade profiles",
+    "Versión": "Version",
+    "Relaciones de transmisión": "Transmission ratios",
+    "Aplica un perfil de mejora. Se modifican los ficheros del coche.":
+        "Applies an upgrade profile. The car files are modified.",
+    "Stock": "Stock",
+    "Restaura la configuración de fábrica. Se modifican los ficheros del coche.":
+        "Restores the factory setup. The car files are modified.",
+    "Volver a stock": "Back to stock",
+    "¿Restaurar la configuración de fábrica del coche?": "Restore the car's factory setup?",
+    "Coche restaurado a stock": "Car restored to stock",
+    "No se pudo restaurar el stock": "Could not restore stock",
+    "Cambios sin guardar": "Unsaved changes",
+    "Guarda o descarta los cambios del coche antes de aplicar una mejora.":
+        "Save or discard the car's changes before applying an upgrade.",
+    "Aplicar stage": "Apply stage",
+    "No se pudo aplicar el stage": "Could not apply the stage",
+    "Este coche no tiene este fichero RTO.": "This car does not have this RTO file.",
+    "Añadir relación": "Add ratio",
+    "Relación (ej. 3.250):": "Ratio (e.g. 3.250):",
+    "RTO sin guardar": "Unsaved RTO",
+    "¿Descartar los cambios sin guardar del RTO?": "Discard the unsaved RTO changes?",
+    "Añadir": "Add",
+    "Quitar": "Remove",
+    "Ordenar": "Sort",
+    "Ficha guardada": "Card saved",
+    "No se pudo guardar la ficha": "Could not save the card",
+    "Este coche no tiene ui/ui_car.json": "This car has no ui/ui_car.json",
+    "Ficha ui_car": "UI card (ui_car)",
+    "Guardar ficha": "Save card",
+    "Datos del coche (ui_car.json)": "Car data (ui_car.json)",
+    "Tags (separados por coma)": "Tags (comma separated)",
+    "Biblioteca": "Library",
+    "Componentes guardados": "Saved components",
+    "Tipo": "Type",
+    "Eliminar": "Delete",
+    "Importar…": "Import…",
+    "Exportar todo…": "Export all…",
+    "Importar componentes": "Import components",
+    "Exportar componentes": "Export components",
+    "Componentes importados": "Components imported",
+    "Biblioteca exportada": "Library exported",
+    "Respaldos": "Backups",
+    "Copias de seguridad": "Backups",
+    "Restaura las copias .bak que se crean al guardar (data/ y ui/). Vuelve a la última versión guardada antes de cada cambio.":
+        "Restores the .bak copies created when saving (data/ and ui/). Returns to the last saved version before each change.",
+    "Restaurar copias .bak": "Restore .bak copies",
+    "Restaurar": "Restore",
+    "No hay copias .bak para restaurar": "There are no .bak copies to restore",
+    "Circuitos": "Tracks",
+    "No se ha encontrado la instalación de Assetto Corsa.": "The Assetto Corsa installation was not found.",
+    "Ruta de circuito no válida": "Invalid track path",
+    "La carpeta ya no está disponible dentro de la biblioteca de Assetto Corsa.":
+        "The folder is no longer available in the Assetto Corsa library.",
+    "El INI ya no está disponible dentro de las ubicaciones reconocidas del circuito.":
+        "The INI is no longer available in the recognized track locations.",
+    "TRACK LIBRARY": "TRACK LIBRARY",
+    "Explora circuitos y layouts instalados; inspección local de solo lectura":
+        "Browse installed tracks and layouts; local read-only inspection",
+    "Ctrl+Shift+T": "Ctrl+Shift+T",
+    "Mejoras": "Upgrades",
+    "Ctrl+M": "Ctrl+M",
+    "Stage tuning, RTO, ficha ui_car, biblioteca de componentes y copias de seguridad":
+        "Stage tuning, RTO, ui_car sheet, component library and backups",
+    'Inspector de datos .ini (solo lectura)': 'Data inspector .ini (read only)',
+    'Filtrar por fichero, seccion, clave o valor…': 'Filter by file, section, key or value…',
+    'Localizar': 'Locate',
+    'Solo lectura: aqui se mira el valor tal cual esta en el .ini, sin tocar nada.': 'Read only: here you look at the value exactly as it is in the .ini, touching nothing.',
+    'Clonar coche': 'Clone car',
+    'nombre de la carpeta nueva (opcional)': 'new folder name (optional)',
+    'Carpeta destino': 'Destination folder',
+    'Clonar este coche': 'Clone this car',
+    'Copia entera del coche en content/cars con otro nombre; el original no se toca': 'Full copy of the car into content/cars under another name; the original is untouched',
+    'Nombre de la carpeta nueva:': 'New folder name:',
+    'Todas las claves rapidas existen en este coche.': 'All quick keys exist on this car.',
+    'Este coche no declara ninguna de esas claves; no se ha tocado nada.': 'This car declares none of those keys; nothing was changed.',
+    'Sin coche': 'No car selected',
+    'Elige un coche de la biblioteca para clonarlo.': 'Pick a car from the library to clone it.',
+    'Ruta no valida': 'Invalid path',
+    'No se encontro la carpeta content/cars del coche.': "The car's content/cars folder was not found.",
+    'Ya existe': 'Already exists',
+    'Confirmar clonado': 'Confirm cloning',
+    'El clonado necesita un coche cargado.': 'Cloning needs a loaded car.',
+    'Este coche no declara esta clave; no se inventa.': 'This car does not declare this key; it is not invented.',
+    'presion delantera': 'front pressure',
+    'presion trasera': 'rear pressure',
+    'reparto de freno': 'brake bias',
+    'par de frenado': 'braking torque',
+    'altura delantera': 'front ride height',
+    'altura trasera': 'rear ride height',
+    'No se puede clonar': 'Cannot clone',
+    'No se pudo clonar': 'Could not clone',
+    # Titulos con barra: el escaner los salta, pero se ven en la interfaz.
+    "Peso/potencia": "Power/weight",
+    "Prestaciones, comparador, gearing, setups, versiones, respaldos e informes":
+        "Performance, comparison, gearing, setups, versions, backups and reports",
+    "Busca circuitos instalados, layouts, metadatos y archivos de configuración en modo lectura.":
+        "Browse installed tracks, layouts, metadata and configuration files in read-only mode.",
+    "Prestaciones, setups, historial, ajustes y respaldos del coche seleccionado.":
+        "Performance, setups, history, adjustments and backups for the selected car.",
+    "CIRCUITOS INSTALADOS · INSPECCIÓN Y EDICIÓN SEGURA CON RESPALDO":
+        "INSTALLED TRACKS · INSPECTION AND SAFE EDITING WITH BACKUP",
+    "Buscar circuito, layout, país o autor…": "Search tracks, layout, country or author…",
+    "Explora circuitos y layouts. Edita solo valores numéricos ya existentes en INI reconocidos; "
+    "se crea un respaldo antes de guardar.":
+        "Browse tracks and layouts. Edit only existing numeric values in recognized INI files; "
+        "a backup is created before saving.",
+    "Selecciona un circuito": "Select a track",
+    "Buscar en sección, clave o valor…": "Search section, key or value…",
+    "Abrir carpeta": "Open folder",
+    "Abrir INI": "Open INI",
+    "Abre el INI seleccionado en el editor de texto del sistema; el editor rápido guarda con copia de seguridad.":
+        "Opens the selected INI in the system text editor; the quick editor saves with a backup.",
+    "Layout:": "Layout:",
+    "Ficheros INI:": "INI files:",
+    "País": "Country",
+    "Autor": "Author",
+    "Año": "Year",
+    "Descripción": "Description",
+    "Longitud": "Length",
+    "Pit boxes": "Pit boxes",
+    "Metadatos": "Metadata",
+    "Modelos": "Models",
+    "No se encontraron INI técnicos en las ubicaciones reconocidas.":
+        "No technical INI files found in recognized locations.",
+    "Sin circuitos instalados": "No tracks installed",
+    "model": "model",
+    "author": "author",
+    "year": "year",
+    "description": "description",
+    "length": "length",
+    "pitboxes": "pit boxes",
+    "ui_track.json no encontrado": "ui_track.json not found",
+    "Guardar valor": "Save value",
+    "No se pudo guardar el INI": "Could not save the INI",
+    "INI guardado · copia de seguridad creada antes del cambio":
+        "INI saved · a backup was created before the change",
+    "Circuitos: {}": "Tracks: {}",
+    "Actualizar circuitos": "Refresh tracks",
+    "[SIMPLE]": "[SIMPLE]",
+    '0-100 km/h': '0-100 km/h',
+    '0-200 km/h': '0-200 km/h',
+    'Simulacion cuasi-estatica con la curva de par actual': 'Quasi-static simulation with the current torque curve',
+    'Misma simulacion hasta 200 km/h': 'Same simulation up to 200 km/h',
+    'Punta estimada': 'Estimated top speed',
+    'Velocidad donde la fuerza iguala la resistencia': 'Speed where drive force equals resistance',
+    'CV por tonelada y kg por CV': 'HP per tonne and kg per HP',
+    'Aceleracion': 'Acceleration',
+    'Aceleracion longitudinal maxima estimada': 'Estimated peak longitudinal acceleration',
+    'Curva del motor · arrastra los puntos para editarla': 'Engine curve · drag the points to edit it',
+    'Par (power.lut)': 'Torque (power.lut)',
+    'Potencia (CV)': 'Power (HP)',
+    'Frenada en rueda': 'Wheel braking',
+    'Curva': 'Curve',
+    'Simulador de cambio · velocidad por marcha': 'Gear simulator · speed per gear',
+    'Gearing optimo': 'Optimal gearing',
+    'Auto (según potencia)': 'Auto (from power)',
+    'Circuito': 'Circuit',
+    'Calcular relaciones': 'Calculate ratios',
+    'Aplicar a drivetrain.ini': 'Apply to drivetrain.ini',
+    'Comparador de coches': 'Car comparator',
+    'Comparar con': 'Compare with',
+    'Comparar': 'Compare',
+    'Diagnostico visual y conflictos': 'Visual diagnostics and conflicts',
+    'Revisar de nuevo': 'Check again',
+    'Presets de estilo': 'Style presets',
+    'Ajustes rapidos (solo claves existentes)': 'Quick settings (existing keys only)',
+    'PRESSURE_STATIC del eje delantero': 'PRESSURE_STATIC of the front axle',
+    'PRESSURE_STATIC del eje trasero': 'PRESSURE_STATIC of the rear axle',
+    'FRONT_SHARE: reparto de frenada al eje delantero': 'FRONT_SHARE: brake bias to the front axle',
+    'ROD_LENGTH del eje delantero (altura libre)': 'ROD_LENGTH of the front axle (ride height)',
+    'ROD_LENGTH del eje trasero': 'ROD_LENGTH of the rear axle',
+    'Valor del parametro de aero.ini elegido': 'Value of the selected aero.ini parameter',
+    'Aero (aero.ini)': 'Aero (aero.ini)',
+    'Aplicar valor de aero': 'Apply aero value',
+    'Setup Manager · por circuito y condiciones': 'Setup Manager · per circuit and conditions',
+    'Nombre del setup': 'Setup name',
+    'seco, lluvia, 25 °C…': 'dry, rain, 25 °C…',
+    'Condiciones': 'Conditions',
+    'Estilo': 'Style',
+    'Gestor de versiones': 'Version manager',
+    'Etiqueta de la version': 'Version label',
+    'Etiqueta': 'Label',
+    'Respaldos y backup inteligente': 'Backups and smart backup',
+    'Informe, historial y estadisticas': 'Report, history and statistics',
+    'Relaciones propuestas; revisa el simulador antes de aplicarlas.': 'Suggested ratios; check the simulator before applying them.',
+    'Exportar setup': 'Export setup',
+    'Setup de Quick Mechanic (*.qmsetup)': 'Quick Mechanic setup (*.qmsetup)',
+    'Importar setup': 'Import setup',
+    'Restaurar un fichero': 'Restore a single file',
+    'Ficheros del respaldo:': 'Files in the backup:',
+    'Guardar informe': 'Save report',
+    'Neumaticos delanteros': 'Front tyres',
+    'Neumaticos traseros': 'Rear tyres',
+    'Reparto de freno': 'Brake bias',
+    'FRONT_SHARE de brakes.ini': 'FRONT_SHARE from brakes.ini',
+    'Par de frenado': 'Braking torque',
+    'Altura delantera': 'Front ride height',
+    'ROD_LENGTH delantero': 'Front ROD_LENGTH',
+    'Altura trasera': 'Rear ride height',
+    'ROD_LENGTH trasero': 'Rear ROD_LENGTH',
+    'Cargar': 'Load',
+    'Borrar': 'Delete',
+    'Exportar': 'Export',
+    'Importar': 'Import',
+    'Guardar version': 'Save version',
+    'Restaurar': 'Restore',
+    'Crear respaldo': 'Create backup',
+    'Restaurar fichero': 'Restore file',
+    'Limpiar antiguos': 'Clean old ones',
+    'Actualizar': 'Refresh',
+    'Exportar .txt': 'Export .txt',
+    'Exportar .html': 'Export .html',
+    'Historial de cambios': 'Change history',
+    'Estadisticas de la biblioteca': 'Library statistics',
+    'Este coche no declara aero.ini: el downforce va dentro del modelo de AC.': 'This car has no aero.ini: downforce lives inside the AC model.',
+    'Elige un coche para ver sus respaldos.': 'Pick a car to see its backups.',
+    'Todavia no hay respaldos: se crean solos antes de cada guardado y swap.': 'No backups yet: they are created before every save and swap.',
+    'Elige un coche con carpeta data/ para ver su curva.': 'Pick a car with a data/ folder to see its curve.',
+    'Vista de potencia: la curva real que se edita es el par (power.lut). Cambia a «Par» para arrastrar los puntos.': 'Power view: the curve you actually edit is torque (power.lut). Switch to «Torque» to drag the points.',
+    'Fuerza de frenada estimada: el limite lo pone el par de freno (MAX_TORQUE) o el agarre disponible, y crece con la carga aerodinamica. Se ajusta con el par de frenado y el reparto de los campos de la izquierda.': 'Estimated braking force: limited by brake torque (MAX_TORQUE) or available grip, and it grows with aero load. Adjust it with the braking torque and bias fields on the left.',
+    'No hay relaciones de cambio legibles.': 'No readable gear ratios.',
+    'Este coche no tiene relaciones suficientes para recalcularlas.': 'This car has too few ratios to recalculate them.',
+    'Falta el nombre': 'Name missing',
+    'Escribe un nombre para el setup.': 'Type a name for the setup.',
+    'Respaldo vacio': 'Empty backup',
+    'Este respaldo no contiene archivos de data/.': 'This backup holds no data/ files.',
+    'Texto (*.txt)': 'Text (*.txt)',
+    'HTML (*.html)': 'HTML (*.html)',
+    'Sin cambios': 'No changes',
+    'No se pudo cargar': 'Could not load',
+    'No se pudo importar': 'Could not import',
+    'No se pudo guardar la version': 'Could not save the version',
+    'No se pudo restaurar': 'Could not restore',
+    'Setup no compatible': 'Incompatible setup',
+    'No se pudo respaldar': 'Could not create the backup',
+    'No se pudo escribir el informe': 'Could not write the report',
     # ------------------------------------------------------------ barra lateral
     "Buscar coche por nombre, carpeta o marca...": "Search cars by name, folder or brand...",
     "Mostrar solo favoritos": "Show favourites only",
+    "Garaje": "Garage",
+    "Ingeniería": "Engineering",
+    "Herramientas": "Tools",
+    "Buscar coche": "Find car",
+    "Exportar biblioteca a CSV": "Export library to CSV",
+    "Guardar cambios": "Save changes",
+    "Edición": "Edit",
+    "Filtros borrados": "Filters cleared",
+    "Historial de coches recientes borrado": "Recent cars history cleared",
+    "No hay ningún coche seleccionado": "No car selected",
+    "Nombre copiado al portapapeles": "Name copied to clipboard",
+    "Todavía no has abierto ningún coche": "You haven't opened any car yet",
+    "No hay favoritos en la lista visible": "No favourites in the visible list",
+    "Ruta copiada al portapapeles": "Path copied to clipboard",
     "Mostrar solo coches con carpeta data/ editable": "Show only cars with an editable data/ folder",
     "Exportar la biblioteca visible a una hoja de cálculo CSV (Ctrl+E)":
         "Export the visible library to a CSV spreadsheet (Ctrl+E)",
@@ -109,6 +402,15 @@ EN_EXACT: dict[str, str] = {
     # ------------------------------------------------------------ cabecera
     "TALLER DE COCHES · ASSETTO CORSA": "CAR WORKSHOP · ASSETTO CORSA",
     "Recargar": "Reload",
+    "⌕  Buscar herramienta…  Ctrl+K": "⌕  Search tool…  Ctrl+K",
+    "GARAJE  ›  RESUMEN": "GARAGE  ›  OVERVIEW",
+    "Paleta de comandos: páginas y acciones (Ctrl+K)": "Command palette: pages and actions (Ctrl+K)",
+    "GARAJE": "GARAGE",
+    "INGENIERÍA": "ENGINEERING",
+    "DIAGNÓSTICO": "DIAGNOSTICS",
+    "HERRAMIENTAS": "TOOLS",
+    "Stage tuning, RTO, ficha ui_car y copias de seguridad del coche seleccionado.":
+        "Stage tuning, RTO, ui_car sheet and backups for the selected car.",
     "Vuelve a leer content/cars sin bloquear la interfaz":
         "Re-reads content/cars without blocking the interface",
     "Abrir data": "Open data",
@@ -129,8 +431,8 @@ EN_EXACT: dict[str, str] = {
     "Deshacer": "Undo",
     "Rehacer": "Redo",
     "Descartar cambios": "Discard changes",
-    "Vuelve a leer los .ini del coche y tira los cambios en memoria":
-        "Re-reads the car .ini files and drops the in-memory changes",
+    "Vuelve a leer los .ini del coche y tira los cambios en memoria (Ctrl+R)":
+        "Re-reads the car .ini files and drops the in-memory changes (Ctrl+R)",
     "Deshacer ajuste (Ctrl+Z)": "Undo change (Ctrl+Z)",
     "Rehacer ajuste (Ctrl+Y)": "Redo change (Ctrl+Y)",
     "Perfiles": "Profiles",
@@ -140,8 +442,8 @@ EN_EXACT: dict[str, str] = {
     "Intercambiar componentes entre coches con validación y copia de seguridad":
         "Swap components between cars with validation and a backup",
     "Guardar todo": "Save all",
-    "Escribe solo las lineas cambiadas; antes crea un ZIP de seguridad y conserva el .bak original":
-        "Writes only the changed lines; first creates a safety ZIP and keeps the original .bak",
+    "Escribe solo las lineas cambiadas; antes crea un ZIP de seguridad y conserva el .bak original (Ctrl+S)":
+        "Writes only the changed lines; first creates a safety ZIP and keeps the original .bak (Ctrl+S)",
     "Selecciona un coche con carpeta data/ para empezar a tunear.":
         "Select a car with a data/ folder to start tuning.",
     "   ·   respaldo completo y .bak conservados": "   ·   full backup and .bak kept",
@@ -238,6 +540,19 @@ EN_EXACT: dict[str, str] = {
     "No se pudo exportar": "Could not export",
     "No se pudo guardar la preferencia": "Could not save the preference",
     "No se pudo guardar": "Could not save",
+    # ------------------------------------------------------------- reparar datos
+    "Revisar y reparar datos…": "Check and repair data…",
+    "Busca errores en car.ini y aero.ini. Pide confirmacion y guarda una copia .bak antes de tocar nada.":
+        "Looks for errors in car.ini and aero.ini. Asks for confirmation and saves a .bak copy before changing anything.",
+    "Reparar datos del coche": "Repair car data",
+    "No se pudo revisar el coche": "Could not check the car",
+    "No se pudo reparar el coche": "Could not repair the car",
+    "No se pudo recargar el coche": "Could not reload the car",
+    "Datos correctos": "Data is correct",
+    "No se ha encontrado ningún problema en los datos de este coche.":
+        "No problems were found in this car's data.",
+    "Reparación completada": "Repair completed",
+    "ninguno": "none",
     # ------------------------------------------------------------- preferencias
     "Tamaño de la interfaz": "Interface size",
     "Compacta · 90%": "Compact · 90%",
@@ -308,9 +623,13 @@ EN_EXACT: dict[str, str] = {
     # ------------------------------------------------------------------- guia
     "01  ·  TU GARAJE": "01  ·  YOUR GARAGE",
     "Busca un coche por nombre o marca y guárdalo en favoritos. "
-    "La previsualización usa la imagen preview de la skin seleccionada; amplíala desde su tarjeta.":
+    "La previsualización usa la imagen preview de la skin seleccionada; amplíala desde su tarjeta. "
+    "Teclado: Ctrl+1 a 9 o Ctrl+Tab cambian de pestaña, Alt+Arriba/Abajo cambian de coche, "
+    "Ctrl+L va a la lista y F1 abre esta guía.":
         "Search a car by name or brand and save it as a favourite. The preview uses the preview "
-        "image of the selected skin; zoom it from its card.",
+        "image of the selected skin; zoom it from its card. "
+        "Keys: Ctrl+1 to 9 or Ctrl+Tab switch tab, Alt+Up/Down switch car, "
+        "Ctrl+L goes to the list and F1 opens this guide.",
     "02  ·  AJUSTA CON CRITERIO": "02  ·  TUNE WITH CRITERIA",
     "Motor: consulta los valores leídos de power.lut y edita sus puntos en la tabla. "
     "Caja: ajusta marchas y grupo final. Chasis: prueba muelles, amortiguadores, geometría, "
@@ -330,17 +649,15 @@ EN_EXACT: dict[str, str] = {
         "Cars with data.acd need data extracted with Content Manager; Quick Mechanic does not "
         "modify data.acd.",
     "05  ·  COMUNIDAD Y CONTENT MANAGER": "05  ·  COMMUNITY AND CONTENT MANAGER",
-    "Abre Discord para encontrar ayuda y avisos de nuevas versiones. "
-    "Content Manager instala o extrae contenido; pulsa Sincronizar coches para refrescar la biblioteca. "
-    "Quick Mechanic no descarga ni instala actualizaciones automáticamente.":
-        "Open Discord to find help and release news. Content Manager installs or extracts content; "
-        "press Sync cars to refresh the library. Quick Mechanic notifies you about new versions "
-        "and only downloads them if you ask for it.",
+    "Abre Discord para encontrar ayuda y novedades. "
+    "Content Manager instala o extrae contenido; pulsa Sincronizar coches para refrescar la biblioteca.":
+        "Open Discord for help and news. Content Manager installs or extracts content; "
+        "press Sync cars to refresh the library.",
     "QUICK START · EDICIÓN SEGURA": "QUICK START · SAFE EDITING",
     "Bienvenido al box": "Welcome to the pit box",
     "Tu centro de ingeniería para Assetto Corsa.": "Your engineering hub for Assetto Corsa.",
-    "COMUNIDAD, AYUDA Y AVISOS DE NUEVAS VERSIONES · EL ENLACE ABRE DISCORD":
-        "COMMUNITY, HELP AND RELEASE NEWS · THE LINK OPENS DISCORD",
+    "COMUNIDAD Y AYUDA · EL ENLACE ABRE DISCORD":
+        "COMMUNITY AND HELP · THE LINK OPENS DISCORD",
     "Abrir Discord  ↗": "Open Discord  ↗",
     "Visita la comunidad de SuperIraitz para novedades y ayuda":
         "Visit the SuperIraitz community for news and help",
@@ -348,6 +665,24 @@ EN_EXACT: dict[str, str] = {
     "Siguiente": "Next",
     "Mostrar al iniciar": "Show on start",
     "Empezar a trabajar": "Start working",
+    "Espera a que termine de preparar el coche actual…": "Wait for the current car to finish preparing…",
+    "Espera: ya se está preparando otro coche…": "Wait: another car is already being prepared…",
+    "Confirma la vinculación en el navegador…": "Confirm the link in your browser…",
+    "Opcional: vincula tu cuenta si estás en el servidor SuperIraitz.":
+        "Optional: link your account if you are in the SuperIraitz server.",
+    "Vincular Discord": "Link Discord",
+    "Desvincular": "Unlink",
+    "Cancelaste la vinculación en Discord.": "You cancelled the link in Discord.",
+    "Tu cuenta no está en el servidor SuperIraitz. Únete al Discord y vuelve a intentarlo.":
+        "Your account is not in the SuperIraitz server. Join the Discord and try again.",
+    "El servicio de vinculación todavía no está configurado.":
+        "The link service is not configured yet.",
+    "Se agotó el tiempo de espera. Vuelve a intentarlo.": "The wait timed out. Try again.",
+    "Discord no devolvió la autorización.": "Discord did not return the authorization.",
+    "Discord no aceptó la autorización. Vuelve a intentarlo.":
+        "Discord did not accept the authorization. Try again.",
+    "No se pudo contactar con el servicio de vinculación.":
+        "Could not reach the link service.",
     # ----------------------------------------------------------- content manager
     "Elegir .exe": "Choose .exe",
     "Abrir CM": "Open CM",
@@ -429,7 +764,7 @@ EN_EXACT: dict[str, str] = {
     "Curva original": "Original curve",
     "Deja el multiplicador en 1.0 sin tocar el fichero":
         "Leaves the multiplier at 1.0 without touching the file",
-    "Curva power.lut · editor avanzado de puntos": "power.lut curve · advanced point editor",
+    "Curva power.lut": "power.lut curve",
     "Los valores se leen directamente de power.lut. Editar el par de un punto cambia solo ese valor; "
     "no hay interpolación ni mediciones de pista.":
         "Values are read straight from power.lut. Editing the torque of a point changes only that "
@@ -652,7 +987,7 @@ EN_EXACT: dict[str, str] = {
     "Sección": "Section",
     "Parámetro": "Parameter",
     "Valor": "Value",
-    # --------------------------------------------------- idioma y actualizaciones
+    # ----------------------------------------------------- idioma
     "Idioma": "Language",
     "Español / English · la app se reinicia al cambiar":
         "Español / English · the app restarts when you switch",
@@ -664,39 +999,41 @@ EN_EXACT: dict[str, str] = {
         "Do you want to restart now?",
     "Idioma guardado · se aplicará al reiniciar la app":
         "Language saved · it will be applied when the app restarts",
-    "Comprobar actualizaciones al iniciar": "Check for updates on start",
-    "Buscar actualizaciones ahora": "Check for updates now",
-    "Comprobando actualizaciones en GitHub…": "Checking GitHub for updates…",
-    "Aviso de actualizaciones desactivado": "Update notices disabled",
-    "Actualización disponible": "Update available",
-    "Sin instalador en la release": "No installer in this release",
-    "Esta release no trae ningún .exe ni .zip descargable. Ábrela en GitHub "
-    "para bajarlo a mano.":
-        "This release does not include a downloadable .exe or .zip. Open it on GitHub "
-        "to get it manually.",
-    "No se pudo descargar la actualización": "Could not download the update",
-    "No hay versiones nuevas (o no se pudo consultar GitHub en este momento)":
-        "There are no new versions (or GitHub could not be reached right now)",
-    # ------------------------------------------------------------ aviso de version
-    "ACTUALIZACIÓN": "UPDATE",
-    "Descargar e instalar": "Download and install",
-    "Ver en GitHub": "View on GitHub",
-    "Cerrar el aviso de actualización": "Close the update notice",
-    "Esta release no trae instalador (.exe) ni ZIP":
-        "This release ships no installer (.exe) or ZIP",
-    "Descargando…": "Downloading…",
-    "Descargando el instalador en segundo plano…":
-        "Downloading the installer in the background…",
     "Abrir instalador": "Open installer",
     "Reintentar descarga": "Retry download",
     "Descarga no disponible": "Download not available",
     "Vuelve a descargar el instalador.": "Download the installer again.",
     "La descarga llegó vacía.": "The download was empty.",
     "No se pudo descargar: ": "Could not download: ",
+    "Volver a comprobar": "Check again",
+    "Cerrar sesión": "Sign out",
+    "Comprueba ahora mismo tu membresía en el servidor de Discord":
+        "Check your membership in the Discord server right now",
+    "◐ Discord no disponible · se volverá a comprobar":
+        "◐ Discord unavailable · will check again",
+    "○ Acceso no verificado": "○ Access not verified",
 }
 
 #: Mensajes con valores dentro. El numero de ``{}`` debe coincidir en ambos idiomas.
 EN_TEMPLATES: dict[str, str] = {
+    "Aplicado: {}": "Applied: {}",
+    "Coche: {}": "Car: {}",
+    "Stage actual: {}": "Current stage: {}",
+    "Stage {} aplicado": "Stage {} applied",
+    "¿Aplicar {}? Se modificarán los ficheros del coche.": "Apply {}? The car files will be modified.",
+    "No se pudo leer el stage: {}": "Could not read the stage: {}",
+    "No se pudo leer el RTO: {}": "Could not read the RTO: {}",
+    "No se pudo guardar el RTO: {}": "Could not save the RTO: {}",
+    "{} guardado": "{} saved",
+    "¿Restaurar {} copia(s) .bak?": "Restore {} .bak copy(ies)?",
+    "{} fichero(s) restaurados": "{} file(s) restored",
+    "Error restaurando {}: {}": "Error restoring {}: {}",
+    "Ajustado: {}": "Adjusted: {}",
+    "Este coche no declara: {}.": "This car does not declare: {}.",
+    "Vinculado como {}. Es opcional: la app funciona igual.":
+        "Linked as {}. Optional: the app works the same.",
+    "No se pudo iniciar la vinculación: {}": "Could not start the link: {}",
+    "No se pudo completar la vinculación ({}).": "Could not complete the link ({}).",
     # ------------------------------------------------------- estado y biblioteca
     "Biblioteca lista · {} coches revisados": "Library ready · {} cars scanned",
     "Biblioteca sincronizada · {} coches revisados": "Library synced · {} cars scanned",
@@ -713,14 +1050,29 @@ EN_TEMPLATES: dict[str, str] = {
     "{} fichero con cambios sin guardar: {}": "{} file with unsaved changes: {}",
     "{} ficheros con cambios sin guardar: {}": "{} files with unsaved changes: {}",
     "Guardar ({})": "Save ({})",
-    "Guardado: {}   ·   respaldo completo y .bak conservados":
-        "Saved: {}   ·   full backup and .bak kept",
+    "Guardado a las {}: {}   ·   respaldo completo y .bak conservados":
+        "Saved at {}: {}   ·   full backup and .bak kept",
     "Hay cambios sin guardar en {}: {}": "There are unsaved changes in {}: {}",
     "{} · recargado desde disco": "{} · reloaded from disk",
     "{} al iniciar: {}": "{} on start: {}",
     "Tamaño de interfaz aplicado: {}": "Interface size applied: {}",
     "Perfil guardado: {}": "Profile saved: {}",
     "Perfil eliminado: {}": "Profile deleted: {}",
+    "Copiar nombre": "Copy name",
+    "Copiar ruta": "Copy path",
+    "Quitar de recientes": "Remove from recent",
+    "Coche quitado de recientes": "Car removed from recent",
+    "Este coche no está en recientes": "This car is not in recent",
+    "Assetto Corsa no está configurado": "Assetto Corsa is not set up",
+    "Todavía no hay ningún coche abierto en una sesión anterior": "No car opened in a previous session yet",
+    "nombre": "name",
+    "favoritos primero": "favourites first",
+    "editables primero": "editable first",
+    "recientes primero": "recent first",
+    "Orden: nombre": "Order: name",
+    "Orden: favoritos primero": "Order: favourites first",
+    "Orden: editables primero": "Order: editable first",
+    "Orden: recientes primero": "Order: recent first",
     # ---------------------------------------------------------------- swaps
     "Respaldo creado · {}": "Backup created · {}",
     "Se guardaron data/ y data.acd (si existía):\n{}":
@@ -788,14 +1140,7 @@ EN_TEMPLATES: dict[str, str] = {
     "{}% al eje delantero": "{}% to the front axle",
     "rampa central {} Nm": "centre ramp {} Nm",
     "par máximo central {} Nm": "centre max torque {} Nm",
-    # --------------------------------------------------- idioma y actualizaciones
-    "Nueva versión disponible: {}": "New version available: {}",
-    "Actualización descargada · {}": "Update downloaded · {}",
-    "No se pudo comprobar la versión: {}": "Could not check the version: {}",
-    "Hay una versión nueva: {}.\n\nPuedes descargarla desde el aviso de la parte superior.":
-        "There is a new version: {}.\n\nYou can download it from the notice at the top.",
-    "Hay una versión nueva disponible: {}": "A new version is available: {}",
-    "Versión instalada frente a {}. {}": "Installed version vs {}. {}",
+    # ----------------------------------------------------- idioma
     "Versión nueva {}. El aviso se queda aquí hasta que lo cierres.":
         "New version {}. The notice stays here until you close it.",
     "Descarga {} a tu carpeta de descargas; no lo ejecuta solo":

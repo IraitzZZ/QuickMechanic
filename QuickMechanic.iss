@@ -1,5 +1,5 @@
 #define AppName "Quick Mechanic"
-#define AppVersion "0.2.0"
+#define AppVersion "0.3.0"
 ; IMPORTANTE: actualizar AppVersion a la vez que quickmechanic/**init**.py.
 #define AppExeName "QuickMechanic.exe"
 #define DiscordURL "https://discord.com/invite/pWE5yEKexW"
@@ -47,6 +47,7 @@ Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; Gr
 
 [Files]
 Source: "dist\QuickMechanic.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Quick Mechanic"; Filename: "{app}\QuickMechanic.exe"

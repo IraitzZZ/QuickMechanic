@@ -16,13 +16,17 @@ from __future__ import annotations
 
 import argparse
 import csv
+import random
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import (
     QByteArray,
     QEasingCurve,
     QObject,
+    QPoint,
     QPropertyAnimation,
     QSize,
     Qt,
@@ -45,15 +49,18 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .qt_i18n import QAction, QDialog, QFileDialog, QFrame, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMenu, QMessageBox, QPushButton, QTabWidget, QWidget
+from .qt_i18n import QAction, QDialog, QFileDialog, QFrame, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QTabWidget, QWidget
 
 from . import (
     APP_NAME,
     __version__,
     ac_scanner,
     car_data,
+    car_repair,
     content_manager,
     drift,
+    tracks,
+    garage,
     i18n,
     license as app_license,
     presets,
@@ -61,16 +68,37 @@ from . import (
     skins,
     swaps,
     theme,
-    updates,
     widgets,
 )
 from .branding import LoadingSplash, app_icon
 from .cm_panel import ContentManagerPanel
+from .command_palette import Command, CommandPalette
+from .access_gate import AccessGate, AccessMonitor
+from .discord_link import Access, Status
 from .guide import DISCORD_URL, QuickGuideDialog
-from .tabs import AidsTab, AdvancedTab, ChassisTab, DashboardTab, GearboxTab, InfoTab, MotorTab
+from .track_tab import TrackTab
+from .tabs import AidsTab, AdvancedTab, ChassisTab, DashboardTab, GearboxTab, InfoTab, LabTab, MotorTab
+from .tabs.upgrade_tab import UpgradeTab
+from . import acd
 
-SIDEBAR_MIN_WIDTH = 300
-SIDEBAR_MAX_WIDTH = 380
+SIDEBAR_MIN_WIDTH = 270
+SIDEBAR_MAX_WIDTH = 400
+
+
+def _tab_page(content: QWidget) -> QScrollArea:
+    """Envuelve una pestaña en un area con desplazamiento.
+
+    Sin esto, el ancho minimo de cada pestaña (tablas y columnas fijas) se propaga
+    a la ventana y el contenido se superpone en ventanas estrechas (1200 px).
+    Ahora la pestaña se encoge y aparece una barra horizontal si hace falta.
+    """
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QFrame.Shape.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    area.setWidget(content)
+    return area
 class _LibraryScanWorker(QObject):
     """Escanea disco fuera del hilo de la interfaz y precarga metadatos."""
 
@@ -99,30 +127,72 @@ class _LibraryScanWorker(QObject):
             self.failed.emit(str(error))
 
 
+class _CarLoadWorker(QObject):
+    """Desempaqueta data.acd y lee la fisica del coche fuera del hilo de la interfaz."""
+
+    completed = pyqtSignal(int, object, object, object, str)  # token, origen, coche, datos, mensaje
+    failed = pyqtSignal(int, object, str)
+
+    def __init__(self, token: int, source: ac_scanner.Car) -> None:
+        super().__init__()
+        self.token = token
+        self.source = source
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            car = self.source
+            message = ""
+            car_dir = Path(self.source.folder)
+            if acd.needs_unpack(car_dir):
+                ok, message = acd.unpack(car_dir)
+                if ok:
+                    car = ac_scanner.Car.from_data_dir(car_dir / "data")
+            data = car_data.CarData.from_car(car) if car.editable else None
+            self.completed.emit(self.token, self.source, car, data, message)
+        except Exception as error:  # noqa: BLE001 - el fallo se muestra sin cerrar la aplicacion
+            self.failed.emit(self.token, self.source, str(error))
+
+
 class MainWindow(QMainWindow):
+    RECENT_LIMIT = 8  # coches recientes que se recuerdan para Ctrl+Shift+H
+    RECENT_TOOL_LIMIT = 5  # herramientas recientes que se muestran en la pantalla de inicio
+    TAB_TITLES = ("Resumen", "Motor", "Caja de cambios", "Chasis", "Diagnóstico", "Asistencias", "Avanzado", "Taller", "Circuitos", "Mejoras")
+    SORT_MODES = ("name", "favorites", "editable", "recent")  # orden de la lista, Ctrl+Shift+K
+    SORT_LABELS = {
+        "name": "nombre",
+        "favorites": "favoritos primero",
+        "editable": "editables primero",
+        "recent": "recientes primero",
+    }
+
     def __init__(
         self,
         ac_root: str | Path | None = None,
         extra_cars: list[ac_scanner.Car] | None = None,
         background: bool = False,
+        access_monitor: AccessMonitor | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle(f"{APP_NAME}  ·  VEHICLE ENGINEERING")
         self.setWindowIcon(app_icon())
-        self.resize(1520, 940)
+        self.resize(1760, 1000)
         self.setMinimumSize(1180, 740)
         self._animations: list[QPropertyAnimation] = []
         self._background_start = background
         self._tray: QSystemTrayIcon | None = None
         self._close_to_tray = bool(settings.get("close_to_tray", sys.platform == "win32"))
         self._exit_requested = False
+        self._access_monitor = access_monitor
+        self._locked = False
+        self._relocking = False
         self._scan_thread: QThread | None = None
         self._scan_worker: _LibraryScanWorker | None = None
-        self._update_thread: QThread | None = None
-        self._update_worker: updates.UpdateWorker | None = None
-        self._download_thread: QThread | None = None
-        self._update_info: updates.UpdateInfo | None = None
-        self._skipped_update = str(settings.get("skipped_update", "") or "")
+        self._load_thread: QThread | None = None
+        self._load_worker: _CarLoadWorker | None = None
+        self._car_request = 0  # cada seleccion de coche lo incrementa; resultados viejos se descartan
+        self._tracks: list[tracks.TrackInfo] = []
+        self._track_scan_error = ""
         self._show_guide_on_start = bool(settings.get("show_guide", True)) and not background
         self._show_splash_on_start = bool(settings.get("show_loading_splash", True)) and not background
 
@@ -136,6 +206,19 @@ class MainWindow(QMainWindow):
         self._skin_choices: dict[str, str] = self._load_skin_choices()
         saved_favorites = settings.get("favorites", []) or []
         self._favorites = set(saved_favorites) if isinstance(saved_favorites, (list, tuple, set)) else set()
+        saved_recent = settings.get("recent_cars", []) or []
+        self._recent_cars: list[str] = (
+            [folder for folder in saved_recent if isinstance(folder, str)][: self.RECENT_LIMIT]
+            if isinstance(saved_recent, list) else []
+        )
+        self._recent_menu: QMenu | None = None
+        saved_tools = settings.get("recent_tools", []) or []
+        self._recent_tools: list[int] = (
+            [index for index in saved_tools if isinstance(index, int) and 0 < index < len(self.TAB_TITLES)][: self.RECENT_TOOL_LIMIT]
+            if isinstance(saved_tools, list) else []
+        )
+        saved_sort = settings.get("sort_mode", "name")
+        self._sort_mode = saved_sort if saved_sort in self.SORT_MODES else "name"
         self._visible_car_keys: list[tuple[str, Path]] = []
         self._history: list[dict] = []
         self._history_index = -1
@@ -157,7 +240,11 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
         self._build_ui()
         self._build_actions()
+        if self._access_monitor is not None:
+            self._build_account_bar()
         self._restore_window_state()
+        self._restore_last_tab()
+        self._restore_filters()
         if self._splash is not None:
             self._splash.set_status("ESCANEANDO BIBLIOTECA DE COCHES", 20)
             QApplication.processEvents()
@@ -185,6 +272,54 @@ class MainWindow(QMainWindow):
         return {}
 
     # ------------------------------------------------------------------- interfaz
+    # ------------------------------------------------------------- cuenta Discord
+    def _build_account_bar(self) -> None:
+        monitor = self._access_monitor
+        assert monitor is not None
+        bar = self.statusBar()
+        self._account_label = QLabel()
+        self._account_label.setObjectName("guideProgress")
+        bar.addPermanentWidget(self._account_label)
+        recheck = QPushButton("Volver a comprobar")
+        recheck.setObjectName("ghost")
+        recheck.setToolTip("Comprueba ahora mismo tu membresía en el servidor de Discord")
+        recheck.clicked.connect(monitor.check_now)
+        bar.addPermanentWidget(recheck)
+        signout = QPushButton("Cerrar sesión")
+        signout.setObjectName("ghost")
+        signout.clicked.connect(monitor.sign_out)
+        bar.addPermanentWidget(signout)
+        monitor.changed.connect(self._on_access_changed)
+        self._on_access_changed(monitor.access)
+
+    def _on_access_changed(self, access: Access) -> None:
+        if access.granted:
+            verified = datetime.fromtimestamp(access.verified_at / 1000).strftime("%d/%m/%Y %H:%M")
+            self._account_label.setText(f"● Discord · {access.name or 'miembro'} · MIEMBRO VERIFICADO · {verified}")
+            self._set_locked(False)
+        elif access.status is Status.UNAVAILABLE and not self._locked:
+            self._account_label.setText("◐ Discord no disponible · se volverá a comprobar")
+        else:
+            self._account_label.setText("○ Acceso no verificado")
+            self._lock(access)
+
+    def _set_locked(self, locked: bool) -> None:
+        self._locked = locked
+        self.setEnabled(not locked)
+
+    def _lock(self, access: Access) -> None:
+        """Bloquea la ventana y exige de nuevo la comprobación con Discord."""
+        if self._relocking or self._access_monitor is None:
+            return
+        self._relocking = True
+        self._set_locked(True)
+        try:
+            granted = AccessGate(self._access_monitor).run(access)
+        finally:
+            self._relocking = False
+        if not granted:
+            QApplication.quit()
+
     def _build_ui(self) -> None:
         central = QWidget()
         outer = QVBoxLayout(central)
@@ -197,12 +332,6 @@ class MainWindow(QMainWindow):
         self._community_notification_timer = QTimer(self)
         self._community_notification_timer.setSingleShot(True)
         self._community_notification_timer.timeout.connect(self._hide_discord_notification)
-
-        self.update_notification = updates.UpdateNotice()
-        self.update_notification.downloadRequested.connect(self._start_update_download)
-        self.update_notification.openPageRequested.connect(self._open_update_page)
-        self.update_notification.dismissed.connect(self._dismiss_update_notice)
-        outer.addWidget(self.update_notification, 0)
 
         body = QWidget()
         body_layout = QHBoxLayout(body)
@@ -252,6 +381,11 @@ class MainWindow(QMainWindow):
         self.car_list.setAlternatingRowColors(False)
         self.car_list.setUniformItemSizes(True)
         self.car_list.currentRowChanged.connect(self._on_car_selected)
+        self.car_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.car_list.customContextMenuRequested.connect(self._car_list_menu)
+        self.car_list.itemDoubleClicked.connect(lambda _item: self._toggle_favorite())
+        # Enter en el buscador pasa el foco a la lista, para elegir con las flechas.
+        self.search.returnPressed.connect(self.car_list.setFocus)
         left_layout.addWidget(self.car_list, 5)
 
         library_heading_row = QHBoxLayout()
@@ -303,15 +437,32 @@ class MainWindow(QMainWindow):
         self.gear_tab = GearboxTab()
         self.chassis_tab = ChassisTab()
         self.info_tab = InfoTab()
+        self.info_tab.repair_requested.connect(self._run_car_repair)
         self.aids_tab = AidsTab()
         self.advanced_tab = AdvancedTab()
-        self.tabs.addTab(self.dashboard_tab, "Resumen")
-        self.tabs.addTab(self.motor_tab, "Motor")
-        self.tabs.addTab(self.gear_tab, "Caja de cambios")
-        self.tabs.addTab(self.chassis_tab, "Chasis")
-        self.tabs.addTab(self.info_tab, "Diagnostico")
-        self.tabs.addTab(self.aids_tab, "Asistencias")
-        self.tabs.addTab(self.advanced_tab, "Avanzado")
+        self.lab_tab = LabTab()
+        self.upgrade_tab = UpgradeTab(lambda: bool(getattr(self, "_car", None) and self._car.changed))
+        self.track_tab = TrackTab()
+        self.track_tab.openRequested.connect(self._open_track_folder)
+        self.track_tab.openIniRequested.connect(self._open_track_ini)
+        self.track_tab.statusMessage.connect(self._track_status)
+        self.track_tab.trackRefreshRequested.connect(self._refresh_tracks)
+        self.upgrade_tab.carChanged.connect(self._reload_current)
+        self.upgrade_tab.statusMessage.connect(lambda message: self.footer_status.setText(message))
+        self.tabs.addTab(_tab_page(self.dashboard_tab), "Resumen")
+        self.dashboard_tab.carRequested.connect(self._open_car_by_folder)
+        self.dashboard_tab.toolRequested.connect(self.tabs.setCurrentIndex)
+        self.dashboard_tab.searchRequested.connect(self._open_command_palette)
+        self.dashboard_tab.actionRequested.connect(self._home_action)
+        self.tabs.addTab(_tab_page(self.motor_tab), "Motor")
+        self.tabs.addTab(_tab_page(self.gear_tab), "Caja de cambios")
+        self.tabs.addTab(_tab_page(self.chassis_tab), "Chasis")
+        self.tabs.addTab(_tab_page(self.info_tab), "Diagnostico")
+        self.tabs.addTab(_tab_page(self.aids_tab), "Asistencias")
+        self.tabs.addTab(_tab_page(self.advanced_tab), "Avanzado")
+        self.tabs.addTab(_tab_page(self.lab_tab), "Taller")
+        self.tabs.addTab(_tab_page(self.track_tab), "Circuitos")
+        self.tabs.addTab(_tab_page(self.upgrade_tab), "Mejoras")
         for index, tip in enumerate((
             "Resumen de rendimiento y estadisticas de la biblioteca",
             "Curvas de potencia y par, limitador y turbo",
@@ -320,15 +471,18 @@ class MainWindow(QMainWindow):
             "Ficha tecnica, estado de archivos y diagnostico",
             "Compatibilidad y controles de ABS y traccion",
             "Editor experto de parametros numericos existentes en archivos locales",
+            "Prestaciones, comparador, gearing, setups, versiones, respaldos e informes",
+            "Explora circuitos y layouts instalados; inspección local de solo lectura",
+            "Stage tuning, RTO, ficha ui_car, biblioteca de componentes y copias de seguridad",
         )):
-            self.tabs.setTabToolTip(index, tip)
+            hint = f"  (Ctrl+{index + 1})" if index < 9 else ""
+            self.tabs.setTabToolTip(index, tip + hint)
         self.tabs.tabBar().hide()
-        self.page_eyebrow = QLabel("01  /  PERFORMANCE OVERVIEW")
+        self.page_eyebrow = QLabel("GARAJE  ›  RESUMEN")
         self.page_eyebrow.setObjectName("pageEyebrow")
         self.page_title = QLabel("Resumen")
         self.page_title.setObjectName("pageTitle")
         self.page_description = QLabel("Estado de la colección y cálculos derivados de los archivos del coche.")
-        self.page_description.setWordWrap(True)
         self.page_description.setWordWrap(True)
         self.page_description.setObjectName("pageDescription")
         self.page_heading = QWidget()
@@ -342,42 +496,67 @@ class MainWindow(QMainWindow):
 
         nav = QFrame()
         nav.setObjectName("navRail")
-        nav.setFixedWidth(168)
         nav_layout = QVBoxLayout(nav)
-        nav_layout.setContentsMargins(8, 10, 8, 10)
-        nav_layout.setSpacing(5)
-        nav_label = QLabel("GARAGE")
-        nav_label.setObjectName("dashboardHeading")
-        nav_layout.addWidget(nav_label)
+        nav_layout.setContentsMargins(10, 8, 10, 12)
+        nav_layout.setSpacing(4)
+        brand = QLabel("QUICK MECHANIC")
+        brand.setObjectName("navBrand")
+        nav_layout.addWidget(brand)
+        brand_sub = QLabel("Taller de ajuste para Assetto Corsa")
+        brand_sub.setObjectName("navBrandSub")
+        brand_sub.setWordWrap(True)
+        nav_layout.addWidget(brand_sub)
+        self.nav_car_status = QLabel("")
+        self.nav_car_status.setObjectName("navCarStatus")
+        self.nav_car_status.setWordWrap(True)
+        nav_layout.addWidget(self.nav_car_status)
+        self._update_nav_status(None)
+        search_button = QPushButton("⌕    Buscar herramienta")
+        search_button.setObjectName("ghost")
+        search_button.setToolTip("Buscar una herramienta o acción (Ctrl+K)")
+        search_button.clicked.connect(lambda _checked=False: self._open_command_palette())
+        nav_layout.addWidget(search_button)
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         self.nav_buttons = []
-        nav_items = (("◈", "Resumen", 0), ("⌁", "Motor", 1), ("⚙", "Caja cambios", 2),
-                     ("◉", "Chasis", 3), ("◌", "Asistencias", 5), ("≋", "Avanzado", 6))
-        for icon, label, index in nav_items:
-            button = QPushButton(f"{icon}    {label}")
-            button.setObjectName("navButton")
-            button.setCheckable(True)
-            button.setToolTip(self.tabs.tabToolTip(index))
-            button.clicked.connect(lambda _checked=False, page=index: self.tabs.setCurrentIndex(page))
-            self.nav_group.addButton(button, index)
-            nav_layout.addWidget(button)
-            self.nav_buttons.append(button)
+        nav_sections = (
+            ("GARAJE", ((0, "◈", "Resumen"),)),
+            ("INGENIERÍA", ((1, "⌁", "Motor"), (2, "⚙", "Caja de cambios"), (3, "◉", "Chasis"),
+                            (5, "◌", "Asistencias"), (6, "≋", "Avanzado"))),
+            ("DIAGNÓSTICO", ((4, "ⓘ", "Diagnóstico"),)),
+            ("HERRAMIENTAS", ((7, "⚗", "Taller"), (8, "▦", "Circuitos"), (9, "✎", "Mejoras"))),
+        )
+        for section_title, items in nav_sections:
+            section_label = QLabel(section_title)
+            section_label.setObjectName("navSection")
+            nav_layout.addWidget(section_label)
+            for index, icon, label in items:
+                button = QPushButton(f"{icon}    {label}")
+                button.setObjectName("navButton")
+                button.setCheckable(True)
+                button.setToolTip(self.tabs.tabToolTip(index))
+                button.clicked.connect(lambda _checked=False, page=index: self.tabs.setCurrentIndex(page))
+                self.nav_group.addButton(button, index)
+                nav_layout.addWidget(button)
+                self.nav_buttons.append(button)
         nav_layout.addStretch(1)
-        diag = QPushButton("ⓘ    Diagnostico")
-        diag.setObjectName("navButton")
-        diag.setCheckable(True)
-        diag.clicked.connect(lambda: self.tabs.setCurrentIndex(4))
-        self.nav_group.addButton(diag, 4)
-        nav_layout.addWidget(diag)
-        self.nav_buttons.append(diag)
+        # El rail puede desplazarse en pantallas bajas: nunca se solapan botones.
+        nav_scroll = QScrollArea()
+        nav_scroll.setWidgetResizable(True)
+        nav_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        nav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        nav_scroll.setFixedWidth(196)
+        nav_scroll.setWidget(nav)
         self.tabs.currentChanged.connect(self._sync_nav_selection)
         self.nav_group.button(0).setChecked(True)
 
         self.nav_group.buttonClicked.connect(lambda _button: self._nav_transition())
-        for tab in (self.motor_tab, self.gear_tab, self.chassis_tab, self.aids_tab, self.advanced_tab):
+        for tab in (self.motor_tab, self.gear_tab, self.chassis_tab, self.aids_tab, self.advanced_tab, self.lab_tab):
             tab.changed.connect(self._on_editor_changed)
-        workspace_layout.addWidget(nav, 0)
+        self.lab_tab.carReloaded.connect(self._reload_all_views)
+        self.lab_tab.libraryChanged.connect(self._reload_cars)
+        self.lab_tab.status.connect(lambda message: self.footer_status.setText(message))
+        workspace_layout.addWidget(nav_scroll, 0)
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -391,7 +570,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         saved_sizes = settings.get("splitter_sizes", [330, 1000])
-        splitter.setSizes(saved_sizes if isinstance(saved_sizes, list) and len(saved_sizes) == 2 else [330, 1000])
+        splitter.setSizes(saved_sizes if isinstance(saved_sizes, list) and len(saved_sizes) == 2 else [300, 1000])
         self._splitter = splitter
         body_layout.addWidget(splitter, 1)
         outer.addWidget(body, 1)
@@ -417,16 +596,100 @@ class MainWindow(QMainWindow):
         self.save_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self.search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self, self.search.setFocus)
         self.search_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.palette_shortcut = QShortcut(QKeySequence("Ctrl+K"), self, self._open_command_palette)
+        self.palette_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self.export_shortcut = QShortcut(QKeySequence("Ctrl+E"), self, self._export_library_csv)
         self.export_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.workshop_shortcut = QShortcut(QKeySequence("Ctrl+T"), self, lambda: self.tabs.setCurrentIndex(7))
+        self.workshop_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.track_shortcut = QShortcut(QKeySequence("Ctrl+Shift+T"), self, lambda: self.tabs.setCurrentIndex(8))
+        self.track_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.backup_shortcut = QShortcut(QKeySequence("Ctrl+Shift+B"), self, self._backup_current_car)
+        self.backup_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.report_shortcut = QShortcut(QKeySequence("Ctrl+P"), self, lambda: self.lab_tab._export_report("txt"))
+        self.report_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.reload_shortcut = QShortcut(QKeySequence("Ctrl+R"), self, self._reload_current)
+        self.reload_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.diagnostic_shortcut = QShortcut(QKeySequence("Ctrl+I"), self, lambda: self.tabs.setCurrentIndex(4))
+        self.diagnostic_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.upgrade_shortcut = QShortcut(QKeySequence("Ctrl+M"), self, lambda: self._go_to_tab(9))
+        self.upgrade_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        for number in range(1, 10):
+            tab_shortcut = QShortcut(
+                QKeySequence(f"Ctrl+{number}"), self, lambda index=number - 1: self._go_to_tab(index)
+            )
+            tab_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.previous_car_shortcut = QShortcut(QKeySequence("Alt+Up"), self, lambda: self._step_car(-1))
+        self.previous_car_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.next_car_shortcut = QShortcut(QKeySequence("Alt+Down"), self, lambda: self._step_car(1))
+        self.next_car_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.next_tab_shortcut = QShortcut(QKeySequence("Ctrl+Tab"), self, lambda: self._cycle_tab(1))
+        self.next_tab_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.previous_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self, lambda: self._cycle_tab(-1))
+        self.previous_tab_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.guide_shortcut = QShortcut(QKeySequence("F1"), self, self._show_guide)
+        self.guide_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.clear_filters_shortcut = QShortcut(QKeySequence("Ctrl+Shift+F"), self, self._clear_filters)
+        self.clear_filters_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.copy_name_shortcut = QShortcut(QKeySequence("Ctrl+Shift+C"), self, self._copy_car_name)
+        self.copy_name_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.focus_list_shortcut = QShortcut(QKeySequence("Ctrl+L"), self, self.car_list.setFocus)
+        self.focus_list_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.recent_shortcut = QShortcut(QKeySequence("Ctrl+Shift+H"), self, self._show_recent_cars)
+        self.recent_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.clear_recent_shortcut = QShortcut(QKeySequence("Ctrl+Shift+L"), self, self._clear_recent_cars)
+        self.clear_recent_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.favorite_filter_shortcut = QShortcut(QKeySequence("Ctrl+Shift+D"), self, self.favorite_filter.toggle)
+        self.favorite_filter_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.editable_filter_shortcut = QShortcut(QKeySequence("Ctrl+Shift+E"), self, self.editable_filter.toggle)
+        self.editable_filter_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.open_folder_shortcut = QShortcut(QKeySequence("Ctrl+Shift+O"), self, self._open_car_folder)
+        self.open_folder_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.copy_path_shortcut = QShortcut(QKeySequence("Ctrl+Shift+P"), self, self._copy_car_path)
+        self.copy_path_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.rescan_shortcut = QShortcut(QKeySequence("F5"), self, self._reload_cars)
+        self.rescan_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.clear_search_shortcut = QShortcut(QKeySequence("Esc"), self.search, self.search.clear)
+        self.clear_search_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.previous_favorite_shortcut = QShortcut(QKeySequence("Alt+Shift+Up"), self, lambda: self._step_favorite(-1))
+        self.previous_favorite_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.next_favorite_shortcut = QShortcut(QKeySequence("Alt+Shift+Down"), self, lambda: self._step_favorite(1))
+        self.next_favorite_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.random_car_shortcut = QShortcut(QKeySequence("Ctrl+Shift+N"), self, self._random_car)
+        self.random_car_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.save_next_shortcut = QShortcut(QKeySequence("Ctrl+Shift+S"), self, self._save_and_next)
+        self.save_next_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.edge_first_shortcut = QShortcut(QKeySequence("Ctrl+Home"), self, lambda: self._go_edge_car(True))
+        self.edge_first_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.edge_last_shortcut = QShortcut(QKeySequence("Ctrl+End"), self, lambda: self._go_edge_car(False))
+        self.edge_last_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.quit_shortcut = QShortcut(QKeySequence("Ctrl+Q"), self, self._quit_app)
+        self.quit_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.info_shortcut = QShortcut(QKeySequence("Ctrl+,"), self, self._show_info)
+        self.info_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.tray_shortcut = QShortcut(QKeySequence("Ctrl+Shift+M"), self, self._minimize_to_tray)
+        self.tray_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.ac_folder_shortcut = QShortcut(QKeySequence("Ctrl+Shift+A"), self, self._open_ac_folder)
+        self.ac_folder_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.external_folder_shortcut = QShortcut(QKeySequence("Ctrl+Shift+G"), self, self._open_data_folder)
+        self.external_folder_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.sort_shortcut = QShortcut(QKeySequence("Ctrl+Shift+K"), self, self._cycle_sort)
+        self.sort_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.forget_recent_shortcut = QShortcut(QKeySequence("Ctrl+Shift+U"), self, self._forget_recent_car)
+        self.forget_recent_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.last_car_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Y"), self, self._open_last_car)
+        self.last_car_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self.delete_favorite_shortcut = QShortcut(QKeySequence("Delete"), self.car_list, self._toggle_favorite)
+        self.delete_favorite_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self._recent_menu = QMenu(self)
         self._refresh_utility_buttons()
 
     def _build_header(self) -> QFrame:
         header = QFrame()
         header.setObjectName("header")
-        header.setFixedHeight(66)
+        header.setFixedHeight(58)
         layout = QHBoxLayout(header)
-        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setContentsMargins(16, 6, 16, 6)
         layout.setSpacing(12)
 
         # La cabecera comparte marca con el icono de ventana y el splash.
@@ -453,14 +716,25 @@ class MainWindow(QMainWindow):
         title.setObjectName("appTitle")
         subtitle = QLabel("TALLER DE COCHES · ASSETTO CORSA")
         subtitle.setObjectName("appSubtitle")
+        # Puede recortarse en ventanas estrechas en vez de empujar toda la cabecera.
+        subtitle.setMinimumWidth(1)
         titles.addWidget(title)
         titles.addWidget(subtitle)
         layout.addLayout(titles, 0)
 
         layout.addStretch(1)
 
+        # Buscador global: abre la paleta de comandos (páginas y acciones).
+        search_button = QPushButton("⌕  Buscar herramienta…  Ctrl+K")
+        search_button.setObjectName("headerSearch")
+        search_button.setMinimumWidth(200)
+        search_button.setToolTip("Paleta de comandos: páginas y acciones (Ctrl+K)")
+        search_button.clicked.connect(lambda _checked=False: self._open_command_palette())
+        layout.addWidget(search_button, 0)
+
         self.path_label = QLabel("")
         self.path_label.setObjectName("headerNote")
+        self.path_label.setMinimumWidth(1)
         self.path_label.setMaximumWidth(250)
         layout.addWidget(self.path_label, 0)
 
@@ -479,7 +753,7 @@ class MainWindow(QMainWindow):
         ):
             button = QPushButton(text)
             button.setObjectName("headerButton")
-            button.setMinimumWidth(76)
+            button.setMinimumWidth(64)
             button.setToolTip(tip)
             button.clicked.connect(slot)
             layout.addWidget(button, 0)
@@ -493,7 +767,7 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("carHeader")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(14, 10, 14, 11)
+        layout.setContentsMargins(14, 8, 14, 9)
         layout.setSpacing(6)
 
         top = QHBoxLayout()
@@ -522,9 +796,9 @@ class MainWindow(QMainWindow):
     def _build_footer(self) -> QFrame:
         footer = QFrame()
         footer.setObjectName("footer")
-        footer.setFixedHeight(58)
+        footer.setFixedHeight(48)
         layout = QHBoxLayout(footer)
-        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setContentsMargins(16, 6, 16, 6)
         layout.setSpacing(10)
 
         self.footer_status = QLabel("")
@@ -533,7 +807,7 @@ class MainWindow(QMainWindow):
 
         self.revert_button = QPushButton("Descartar cambios")
         self.revert_button.setObjectName("danger")
-        self.revert_button.setToolTip("Vuelve a leer los .ini del coche y tira los cambios en memoria")
+        self.revert_button.setToolTip("Vuelve a leer los .ini del coche y tira los cambios en memoria (Ctrl+R)")
         self.revert_button.clicked.connect(self._reload_current)
         layout.addWidget(self.revert_button)
         self.undo_button = QPushButton("↶")
@@ -559,7 +833,7 @@ class MainWindow(QMainWindow):
         self.save_button = QPushButton("Guardar todo")
         self.save_button.setObjectName("primary")
         self.save_button.setToolTip(
-            "Escribe solo las lineas cambiadas; antes crea un ZIP de seguridad y conserva el .bak original"
+            "Escribe solo las lineas cambiadas; antes crea un ZIP de seguridad y conserva el .bak original (Ctrl+S)"
         )
         self.save_button.clicked.connect(self._save)
         layout.addWidget(self.save_button)
@@ -567,6 +841,9 @@ class MainWindow(QMainWindow):
 
     # ----------------------------------------------------------- lista de coches
     def _reload_cars(self) -> None:
+        if self._load_thread is not None and self._load_thread.isRunning():
+            self.footer_status.setText("Espera a que termine de preparar el coche actual…")
+            return
         if self._scan_thread is not None and self._scan_thread.isRunning():
             self.footer_status.setText("La biblioteca ya se está escaneando…")
             return
@@ -607,6 +884,13 @@ class MainWindow(QMainWindow):
         if self._exit_requested:
             QTimer.singleShot(0, self.close)
 
+    def _clear_load_thread(self, thread: QThread) -> None:
+        if self._load_thread is thread:
+            self._load_thread = None
+            self._load_worker = None
+        if self._exit_requested:
+            QTimer.singleShot(0, self.close)
+
     @pyqtSlot(int, int)
     def _update_scan_progress(self, current: int, total: int) -> None:
         if total:
@@ -621,6 +905,7 @@ class MainWindow(QMainWindow):
         self._meta_cache = dict(metadata)
         self._index_car_search_terms()
         self.dashboard_tab.set_library(self._cars)
+        self._refresh_home()
         self.car_list.setEnabled(True)
         if hasattr(self, "reload_button"):
             self.reload_button.setEnabled(True)
@@ -635,7 +920,13 @@ class MainWindow(QMainWindow):
             self.path_label.setToolTip(
                 "No se ha encontrado Assetto Corsa. Usa 'Ruta AC' para indicar la carpeta."
             )
+        self.lab_tab.set_library(self._cars, self._meta_cache, self._favorites)
+        self._refresh_home()
+        self._update_nav_status(self._source)
+        self._refresh_tracks()
         self._apply_filter()
+        if self._source is None:
+            self._select_last_car()
         self.footer_status.setText(f"Biblioteca lista · {len(self._cars)} coches revisados")
         if self._splash is not None and not self._splash_finish_pending:
             self._splash_finish_pending = True
@@ -656,6 +947,7 @@ class MainWindow(QMainWindow):
         self._cars = []
         self._meta_cache.clear()
         self._index_car_search_terms()
+        self._refresh_tracks()
         self.car_list.setEnabled(True)
         if hasattr(self, "reload_button"):
             self.reload_button.setEnabled(True)
@@ -673,6 +965,60 @@ class MainWindow(QMainWindow):
         self._splash_finish_pending = False
         if not self._background_start:
             self._schedule_startup_notices()
+
+    def _refresh_tracks(self) -> None:
+        """Actualiza el catálogo local de circuitos sin alterar ningún archivo."""
+        if self.ac_root is None:
+            self._tracks = []
+            self._track_scan_error = "No se ha encontrado la instalación de Assetto Corsa."
+        else:
+            try:
+                self._tracks = tracks.scan_tracks(self.ac_root)
+                self._track_scan_error = ""
+            except tracks.TrackError as error:
+                self._tracks = []
+                self._track_scan_error = str(error)
+        if hasattr(self, "track_tab"):
+            self.track_tab.set_tracks(self._tracks, self._track_scan_error)
+
+    def _open_track_folder(self, path: str) -> None:
+        """Abre solo una carpeta que pertenezca a la biblioteca escaneada."""
+        candidate = Path(path)
+        for track in self._tracks:
+            try:
+                resolved = candidate.resolve(strict=True)
+                resolved.relative_to(track.folder.resolve(strict=True))
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if candidate.is_symlink() or not candidate.is_dir():
+                break
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(candidate)))
+            return
+        QMessageBox.warning(
+            self,
+            "Ruta de circuito no válida",
+            "La carpeta ya no está disponible dentro de la biblioteca de Assetto Corsa.",
+        )
+
+    def _track_status(self, message: str) -> None:
+        self.footer_status.setText(message)
+
+    def _open_track_ini(self, path: str) -> None:
+        """Abre en el editor del sistema solo un INI reconocido y seguro del circuito."""
+        candidate = Path(path)
+        for track in self._tracks:
+            try:
+                target = candidate.resolve(strict=True)
+                if any(target == known.resolve(strict=True) for known in tracks.ini_files(track)):
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(str(candidate)))
+                    return
+            except (OSError, RuntimeError, ValueError):
+                continue
+        QMessageBox.warning(
+            self,
+            "Ruta de circuito no válida",
+            "El INI ya no está disponible dentro de las ubicaciones reconocidas del circuito.",
+        )
 
     def _export_library_csv(self) -> None:
         if not self._shown:
@@ -740,12 +1086,11 @@ class MainWindow(QMainWindow):
         self._community_notification_timer.stop()
         self.community_notification.hide()
 
-    # ------------------------------------------------------- idioma y actualizaciones
+    # ------------------------------------------------------- idioma
     def _schedule_startup_notices(self) -> None:
         if self._background_start:
             return
         QTimer.singleShot(250, self._show_discord_notification)
-        QTimer.singleShot(1200, self._check_updates)
 
     def _language_menu(self) -> None:
         menu = QMenu(self)
@@ -777,114 +1122,6 @@ class MainWindow(QMainWindow):
         if answer == QMessageBox.StandardButton.Yes and restart_application():
             return
         self.footer_status.setText("Idioma guardado · se aplicará al reiniciar la app")
-
-    def _check_updates(self, force: bool = False) -> None:
-        """Mira si hay una release mas nueva; nunca lanza errores al usuario."""
-        if self._background_start and not force:
-            return
-        if not force and not bool(settings.get("check_updates", True)):
-            return
-        if self._update_thread is not None and self._update_thread.isRunning():
-            return
-        self._update_check_forced = bool(force)
-        if force:
-            self.footer_status.setText("Comprobando actualizaciones en GitHub…")
-        worker = updates.UpdateWorker(__version__)
-        worker.finished.connect(self._on_update_checked)
-        worker.finished.connect(lambda info, check=force: self._report_update_check(info, check))
-        worker.failed.connect(self._on_update_failed)
-        self._update_worker = worker
-        thread = updates.start_worker(worker, self)
-        self._update_thread = thread
-        thread.finished.connect(lambda ended=thread: self._clear_workers(ended))
-
-    def _on_update_checked(self, info) -> None:
-        if info is None or info.tag == self._skipped_update:
-            return
-        self._update_info = info
-        self.update_notification.show_available(info)
-        self.footer_status.setText(f"Nueva versión disponible: {info.name or info.tag}")
-
-    def _report_update_check(self, info, forced: bool) -> None:
-        if not forced:
-            return
-        if info is None:
-            self.footer_status.setText(
-                "No hay versiones nuevas (o no se pudo consultar GitHub en este momento)"
-            )
-            return
-        self.update_notification.show_available(info)
-        QMessageBox.information(
-            self, "Actualización disponible",
-            f"Hay una versión nueva: {info.name or info.tag}.\n\n"
-            "Puedes descargarla desde el aviso de la parte superior.",
-        )
-
-    def _on_update_failed(self, message: str) -> None:
-        # En el arranque se ignora en silencio; si la comprobacion fue a mano, se avisa.
-        if not getattr(self, "_update_check_forced", False):
-            return
-        self.footer_status.setText(f"No se pudo comprobar la versión: {message}")
-
-    def _start_update_download(self) -> None:
-        notice = self.update_notification
-        if notice.downloaded_path is not None:
-            notice.launch_downloaded()
-            return
-        info = self._update_info or notice.info
-        if info is None:
-            return
-        candidates = updates.asset_candidates(info)
-        if not candidates:
-            QMessageBox.information(
-                self, "Sin instalador en la release",
-                "Esta release no trae ningún .exe ni .zip descargable. Ábrela en GitHub "
-                "para bajarlo a mano.",
-            )
-            return
-        if self._download_thread is not None and self._download_thread.isRunning():
-            return
-        notice.show_downloading()
-        worker = updates.DownloadWorker(candidates[0])
-        worker.finished.connect(self._on_update_downloaded)
-        worker.failed.connect(self._on_download_failed)
-        thread = updates.start_worker(worker, self)
-        self._download_thread = thread
-        thread.finished.connect(lambda ended=thread: self._clear_workers(ended))
-
-    def _clear_workers(self, thread: QThread) -> None:
-        """Suelta las referencias de un hilo terminado (nunca se usa su objeto C++)."""
-        if self._update_thread is thread:
-            self._update_thread = None
-            self._update_worker = None
-        if self._download_thread is thread:
-            self._download_thread = None
-        if self._exit_requested:
-            # Cerrar mientras se descargaba: Qt no admite destruir un hilo vivo.
-            QTimer.singleShot(0, self.close)
-
-    def _on_update_downloaded(self, path) -> None:
-        self.update_notification.show_downloaded(path)
-        self.footer_status.setText(f"Actualización descargada · {path.name}")
-
-    def _on_download_failed(self, message: str) -> None:
-        self.update_notification.show_error(message)
-        self.footer_status.setText("No se pudo descargar la actualización")
-
-    def _open_update_page(self) -> None:
-        info = self._update_info or self.update_notification.info
-        url = info.page_url if info is not None else updates.RELEASES_PAGE
-        QDesktopServices.openUrl(QUrl(url))
-
-    def _dismiss_update_notice(self) -> None:
-        info = self.update_notification.info
-        if info is None or self.update_notification.downloaded_path is not None:
-            return
-        self._skipped_update = info.tag
-        try:
-            settings.set_value("skipped_update", info.tag)
-        except OSError:
-            pass
 
     def _swap_menu(self) -> None:
         if self._source is None:
@@ -1006,6 +1243,33 @@ class MainWindow(QMainWindow):
             "Revisa el coche en Assetto Corsa antes de compartirlo.",
         )
 
+    def _open_command_palette(self, query: str = "") -> None:
+        dialog = CommandPalette(self._palette_commands(), self, query)
+        if dialog.exec() and dialog.chosen is not None:
+            dialog.chosen.action()
+
+    def _palette_commands(self) -> list[Command]:
+        pages = (
+            (0, "Resumen", "Garaje"), (1, "Motor", "Ingeniería"), (2, "Caja de cambios", "Ingeniería"),
+            (3, "Chasis", "Ingeniería"), (4, "Diagnóstico", "Diagnóstico"), (5, "Asistencias", "Ingeniería"),
+            (6, "Avanzado", "Ingeniería"), (7, "Taller", "Herramientas"), (8, "Circuitos", "Herramientas"),
+            (9, "Mejoras", "Herramientas"),
+        )
+        commands = [
+            Command(title, f"Página · {group}", lambda page=index: self.tabs.setCurrentIndex(page),
+                    enabled=self.tabs.isTabEnabled(index), keywords=self.tabs.tabToolTip(index))
+            for index, title, group in pages
+        ]
+        commands += [
+            Command("Buscar coche", "Garaje", self.search.setFocus, keywords="filtrar lista coleccion"),
+            Command("Exportar biblioteca a CSV", "Garaje", self._export_library_csv, keywords="excel hoja"),
+            Command("Alternar favorito", "Garaje", self._toggle_favorite, keywords="estrella"),
+            Command("Guardar cambios", "Archivo", self._save, keywords="grabar escribir"),
+            Command("Deshacer", "Edición", self._undo, keywords="atras"),
+            Command("Rehacer", "Edición", self._redo, keywords="adelante"),
+        ]
+        return commands
+
     def _nav_transition(self) -> None:
         self._sync_nav_selection(self.tabs.currentIndex())
 
@@ -1013,8 +1277,8 @@ class MainWindow(QMainWindow):
         button = self.nav_group.button(index)
         if button is not None:
             button.setChecked(True)
-        titles = ("Resumen", "Motor", "Caja de cambios", "Chasis", "Diagnóstico", "Asistencias", "Avanzado")
-        eyebrow = ("PERFORMANCE OVERVIEW", "POWERTRAIN LAB", "GEARBOX & RATIOS", "CHASSIS SETUP", "VEHICLE INSPECTION", "DRIVER AIDS", "EXPERT PARAMETERS")
+        titles = self.TAB_TITLES
+        sections = ("GARAJE", "INGENIERÍA", "INGENIERÍA", "INGENIERÍA", "DIAGNÓSTICO", "INGENIERÍA", "INGENIERÍA", "HERRAMIENTAS", "HERRAMIENTAS", "HERRAMIENTAS")
         descriptions = (
             "Estado de la colección y cálculos derivados de los archivos locales del coche.",
             "Lee power.lut y permite editar sus puntos, corte, turbo y entrega de par.",
@@ -1023,10 +1287,14 @@ class MainWindow(QMainWindow):
             "Ficha técnica, alertas de seguridad y estado de los archivos de física.",
             "Inspecciona ABS y control de tracción cuando están declarados por el coche.",
             "Editor experto limitado a parámetros numéricos presentes en los INI abiertos.",
+            "Prestaciones, setups, historial, ajustes y respaldos del coche seleccionado.",
+            "Busca circuitos instalados, layouts, metadatos y archivos de configuración en modo lectura.",
+            "Stage tuning, RTO, ficha ui_car y copias de seguridad del coche seleccionado.",
         )
+        self._record_recent_tool(index)
         if 0 <= index < len(titles) and hasattr(self, "page_title"):
             self.page_title.setText(titles[index])
-            self.page_eyebrow.setText(f"{index + 1:02d}  /  {eyebrow[index]}")
+            self.page_eyebrow.setText(f"{sections[index]}  ›  {titles[index].upper()}")
             self.page_description.setText(descriptions[index])
         self._animate_page()
 
@@ -1093,12 +1361,13 @@ class MainWindow(QMainWindow):
         self.cm_panel.set_executable(candidate)
 
     def _sync_library(self) -> None:
-        """Reindexa coches instalados tras operar en Content Manager."""
+        """Reindexa coches y circuitos tras operar en Content Manager."""
         if self.ac_root is None:
             self._choose_ac_root()
             return
+        self._refresh_tracks()
         self._reload_cars()
-        self.footer_status.setText(f"Biblioteca sincronizada · {len(self._cars)} coches revisados")
+        self.footer_status.setText(f"Biblioteca sincronizada · {len(self._cars)} coches y {len(self._tracks)} circuitos")
 
     def _set_path_text(self, text: str) -> None:
         self.path_label.setToolTip(text)
@@ -1115,6 +1384,7 @@ class MainWindow(QMainWindow):
             ).casefold()
 
     def _apply_filter(self) -> None:
+        self._save_filters()
         needle = self.search.text().strip().casefold()
         candidates = self._extra_cars + self._cars
         if needle:
@@ -1134,15 +1404,14 @@ class MainWindow(QMainWindow):
         if self.editable_filter.isChecked():
             self._shown = [car for car in self._shown if car.editable]
 
+        self._shown.sort(key=self._sort_key)
         selected_key = (
             (self._source.name, self._source.folder) if self._source is not None else None
         )
         self.car_list.blockSignals(True)
         self.car_list.clear()
         for car in self._shown:
-            favorite = "★  " if car.name in self._favorites else ""
-            text = favorite + (car.ui_name if car.editable else f"{car.ui_name}   ·   data.acd")
-            item = QListWidgetItem(text)
+            item = QListWidgetItem(self._car_item_text(car, dirty=self._is_dirty(car)))
             item.setToolTip(f"{car.folder}\nEstado: {car.status}")
             item.setSizeHint(QSize(0, 26))
             self.car_list.addItem(item)
@@ -1166,8 +1435,350 @@ class MainWindow(QMainWindow):
             f"{len(self._favorites)} favoritos{suffix}"
         )
 
+    def _go_to_tab(self, index: int) -> None:
+        """Ctrl+1..9: cambia a la pestaña si existe y está disponible."""
+        if 0 <= index < self.tabs.count() and self.tabs.isTabEnabled(index):
+            self.tabs.setCurrentIndex(index)
+
+    def _step_car(self, delta: int) -> None:
+        """Alt+Arriba/Abajo: pasa al coche anterior o siguiente de la lista visible."""
+        count = self.car_list.count()
+        if count == 0:
+            return
+        row = self.car_list.currentRow()
+        if row < 0:
+            target = 0 if delta > 0 else count - 1
+        else:
+            target = (row + delta) % count
+        self.car_list.setCurrentRow(target)
+
+    def _cycle_tab(self, step: int) -> None:
+        """Ctrl+Tab / Ctrl+Shift+Tab: pasa a la pestaña siguiente o anterior disponible."""
+        count = self.tabs.count()
+        index = self.tabs.currentIndex()
+        for _ in range(count):
+            index = (index + step) % count
+            if self.tabs.isTabEnabled(index):
+                self.tabs.setCurrentIndex(index)
+                return
+
+    def _clear_filters(self) -> None:
+        """Ctrl+Shift+F: borra la búsqueda y los filtros de la lista de coches."""
+        self.search.clear()
+        self.favorite_filter.setChecked(False)
+        self.editable_filter.setChecked(False)
+        self._apply_filter()
+        self.footer_status.setText("Filtros borrados")
+
+    def _open_car_folder(self) -> None:
+        """Ctrl+Shift+O: abre la carpeta del coche actual en el Explorador."""
+        if self._source is None:
+            self.footer_status.setText("No hay ningún coche seleccionado")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._source.folder)))
+
+    def _copy_car_path(self) -> None:
+        """Ctrl+Shift+P: copia la ruta de la carpeta del coche actual."""
+        if self._source is None:
+            self.footer_status.setText("No hay ningún coche seleccionado")
+            return
+        QApplication.clipboard().setText(str(self._source.folder))
+        self.footer_status.setText("Ruta copiada al portapapeles")
+
+    def _step_favorite(self, delta: int) -> None:
+        """Alt+Shift+Arriba/Abajo: pasa al favorito anterior o siguiente de la lista visible."""
+        count = len(self._visible_car_keys)
+        if count == 0:
+            return
+        start = self.car_list.currentRow()
+        if start < 0:
+            start = 0 if delta > 0 else count
+        for step in range(1, count + 1):
+            row = (start + delta * step) % count
+            if self._visible_car_keys[row][0] in self._favorites:
+                self.car_list.setCurrentRow(row)
+                return
+        self.footer_status.setText("No hay favoritos en la lista visible")
+
+    def _random_car(self) -> None:
+        """Ctrl+Shift+N: elige al azar un coche de la lista visible, distinto del actual."""
+        count = len(self._visible_car_keys)
+        if count == 0:
+            return
+        current = self.car_list.currentRow()
+        choices = [row for row in range(count) if row != current] or [0]
+        self.car_list.setCurrentRow(random.choice(choices))
+
+    def _save_and_next(self) -> None:
+        """Ctrl+Shift+S: guarda los cambios del coche actual y pasa al siguiente."""
+        if self._car is not None and self._car.changed:
+            self._save()
+        self._step_car(1)
+
+    def _restore_filters(self) -> None:
+        """Recupera la búsqueda y los filtros de la sesión anterior."""
+        text = settings.get("search_text", "")
+        if isinstance(text, str):
+            self.search.setText(text)
+        self.favorite_filter.setChecked(bool(settings.get("filter_favorites", False)))
+        self.editable_filter.setChecked(bool(settings.get("filter_editable", False)))
+
+    def _save_filters(self) -> None:
+        try:
+            settings.set_value("search_text", self.search.text())
+            settings.set_value("filter_favorites", self.favorite_filter.isChecked())
+            settings.set_value("filter_editable", self.editable_filter.isChecked())
+        except OSError:
+            pass
+
+    def _select_last_car(self) -> None:
+        """Selecciona el último coche abierto si sigue en la lista visible."""
+        folder = settings.get("last_car", "")
+        for row, (_name, car_folder) in enumerate(self._visible_car_keys):
+            if str(car_folder) == folder:
+                self.car_list.setCurrentRow(row)
+                return
+
+    def _copy_car_name(self) -> None:
+        """Ctrl+Shift+C: copia el nombre visible del coche actual al portapapeles."""
+        if self._source is None:
+            self.footer_status.setText("No hay ningún coche seleccionado")
+            return
+        QApplication.clipboard().setText(self._source.ui_name)
+        self.footer_status.setText("Nombre copiado al portapapeles")
+
+    def _remember_recent(self, source: ac_scanner.Car) -> None:
+        key = str(source.folder)
+        self._recent_cars = [folder for folder in self._recent_cars if folder != key]
+        self._recent_cars.insert(0, key)
+        del self._recent_cars[self.RECENT_LIMIT:]
+        try:
+            settings.set_value("recent_cars", list(self._recent_cars))
+        except OSError:
+            pass
+
+    def _show_recent_cars(self) -> None:
+        """Ctrl+Shift+H: menú con los últimos coches abiertos."""
+        cars = {str(car.folder): car for car in self._extra_cars + self._cars}
+        recent = [cars[folder] for folder in self._recent_cars if folder in cars]
+        if not recent:
+            self.footer_status.setText("Todavía no has abierto ningún coche")
+            return
+        if self._recent_menu is None:
+            self._recent_menu = QMenu(self)
+        menu = self._recent_menu
+        menu.clear()
+        for car in recent:
+            action = menu.addAction(car.ui_name)
+            action.triggered.connect(lambda _checked=False, folder=str(car.folder): self._open_car_by_folder(folder))
+        menu.popup(self.mapToGlobal(self.rect().center()))
+
+    def _update_nav_status(self, source: ac_scanner.Car | None) -> None:
+        """Bloque de estado del coche activo en la barra lateral."""
+        if not hasattr(self, "nav_car_status"):
+            return
+        if source is None:
+            self.nav_car_status.setText("Ningún coche seleccionado\nElige uno en la colección")
+            return
+        if source.editable:
+            state = "Editable · data/ extraída"
+        elif source.has_acd:
+            state = "Bloqueado · data.acd"
+        else:
+            state = "Sin carpeta data/"
+        star = "★ " if source.name in self._favorites else ""
+        self.nav_car_status.setText(f"{star}{source.ui_name}\n{state}")
+
+    def _refresh_home(self) -> None:
+        """Actualiza las tarjetas de la pantalla de inicio: recientes, favoritos y herramientas."""
+        if not hasattr(self, "dashboard_tab"):
+            return
+        cars = {str(car.folder): car for car in self._extra_cars + self._cars}
+        recent = [(folder, cars[folder].ui_name) for folder in self._recent_cars if folder in cars]
+        favorites = sorted(
+            ((str(car.folder), car.ui_name) for car in self._cars if car.name in self._favorites),
+            key=lambda item: item[1].casefold(),
+        )
+        tools = [(index, self.TAB_TITLES[index]) for index in self._recent_tools]
+        self.dashboard_tab.set_home(recent, favorites, tools)
+
+    def _record_recent_tool(self, index: int) -> None:
+        """Recuerda la última herramienta abierta (la pantalla de inicio no cuenta)."""
+        if index <= 0 or index >= len(self.TAB_TITLES):
+            return
+        self._recent_tools = [item for item in self._recent_tools if item != index]
+        self._recent_tools.insert(0, index)
+        del self._recent_tools[self.RECENT_TOOL_LIMIT:]
+        try:
+            settings.set_value("recent_tools", list(self._recent_tools))
+        except OSError:
+            pass
+
+    def _home_action(self, action: str) -> None:
+        """Acciones rápidas de la pantalla de inicio; reutilizan los mismos atajos del menú."""
+        if action == "palette":
+            self._open_command_palette()
+        elif action == "random":
+            self._random_car()
+        elif action == "export":
+            self._export_library_csv()
+        elif action == "sync":
+            self._sync_library()
+
+    def _sort_key(self, car: ac_scanner.Car) -> tuple:
+        """Orden de la lista según el modo elegido con Ctrl+Shift+K."""
+        name = car.ui_name.casefold()
+        if self._sort_mode == "favorites":
+            return (car.name not in self._favorites, name)
+        if self._sort_mode == "editable":
+            return (not car.editable, name)
+        if self._sort_mode == "recent":
+            key = str(car.folder)
+            position = self._recent_cars.index(key) if key in self._recent_cars else len(self._recent_cars)
+            return (position, name)
+        return (name,)
+
+    def _cycle_sort(self) -> None:
+        """Ctrl+Shift+K: pasa al siguiente orden de la lista."""
+        index = self.SORT_MODES.index(self._sort_mode)
+        self._sort_mode = self.SORT_MODES[(index + 1) % len(self.SORT_MODES)]
+        try:
+            settings.set_value("sort_mode", self._sort_mode)
+        except OSError:
+            pass
+        self._apply_filter()
+        self.footer_status.setText(f"Orden: {self.SORT_LABELS[self._sort_mode]}")
+
+    def _go_edge_car(self, first: bool) -> None:
+        """Ctrl+Home / Ctrl+End: primer o último coche de la lista visible."""
+        count = self.car_list.count()
+        if count:
+            self.car_list.setCurrentRow(0 if first else count - 1)
+
+    def _open_last_car(self) -> None:
+        """Ctrl+Shift+Y: vuelve al último coche abierto, quitando filtros si hace falta."""
+        folder = settings.get("last_car", "")
+        if not isinstance(folder, str) or not folder:
+            self.footer_status.setText("Todavía no hay ningún coche abierto en una sesión anterior")
+            return
+        self._open_car_by_folder(folder)
+
+    def _quit_app(self) -> None:
+        """Ctrl+Q: cierra Quick Mechanic; closeEvent pide confirmación si hay cambios."""
+        self._exit_from_tray()
+
+    def _minimize_to_tray(self) -> None:
+        """Ctrl+Shift+M: oculta la ventana a la bandeja, o la minimiza si no hay bandeja."""
+        if self._tray is not None:
+            self.hide()
+        else:
+            self.showMinimized()
+
+    def _open_ac_folder(self) -> None:
+        """Ctrl+Shift+A: abre la carpeta raíz de Assetto Corsa."""
+        if self.ac_root is None:
+            self.footer_status.setText("Assetto Corsa no está configurado")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.ac_root)))
+
+    def _forget_recent_car(self) -> None:
+        """Ctrl+Shift+U: quita el coche actual del historial de recientes."""
+        if self._source is None:
+            self.footer_status.setText("No hay ningún coche seleccionado")
+            return
+        key = str(self._source.folder)
+        if key not in self._recent_cars:
+            self.footer_status.setText("Este coche no está en recientes")
+            return
+        self._recent_cars = [folder for folder in self._recent_cars if folder != key]
+        try:
+            settings.set_value("recent_cars", list(self._recent_cars))
+        except OSError:
+            pass
+        if self._sort_mode == "recent":
+            self._apply_filter()
+        self.footer_status.setText("Coche quitado de recientes")
+
+    def _is_dirty(self, car: ac_scanner.Car) -> bool:
+        return car is self._source and self._car is not None and self._car.changed
+
+    def _car_item_text(self, car: ac_scanner.Car, dirty: bool = False) -> str:
+        favorite = "★  " if car.name in self._favorites else ""
+        text = favorite + (car.ui_name if car.editable else f"{car.ui_name}   ·   data.acd")
+        return f"● {text}" if dirty else text
+
+    def _update_dirty_marker(self) -> None:
+        """Marca con ● en la lista los coches con cambios sin guardar."""
+        for row, car in enumerate(self._shown):
+            item = self.car_list.item(row)
+            if item is None:
+                continue
+            text = self._car_item_text(car, dirty=self._is_dirty(car))
+            if item.text() != text:
+                item.setText(text)
+
+    def _refresh_window_title(self) -> None:
+        base = f"{APP_NAME}  ·  VEHICLE ENGINEERING"
+        if self._source is not None and self._car is not None and self._car.changed:
+            self.setWindowTitle(f"● {self._source.ui_name} · {base}")
+        else:
+            self.setWindowTitle(base)
+
+    def _car_list_menu(self, pos: QPoint) -> None:
+        """Menú contextual del coche bajo el cursor en la lista."""
+        item = self.car_list.itemAt(pos)
+        if item is None:
+            return
+        self.car_list.setCurrentRow(self.car_list.row(item))
+        if self._source is None:
+            return
+        menu = QMenu(self)
+        for label, slot in (
+            ("Alternar favorito", self._toggle_favorite),
+            ("Copiar nombre", self._copy_car_name),
+            ("Copiar ruta", self._copy_car_path),
+            ("Abrir carpeta", self._open_car_folder),
+            ("Quitar de recientes", self._forget_recent_car),
+        ):
+            action = menu.addAction(label)
+            action.triggered.connect(slot)
+        menu.exec(self.car_list.mapToGlobal(pos))
+
+    def _clear_recent_cars(self) -> None:
+        """Ctrl+Shift+L: borra el historial de coches recientes."""
+        self._recent_cars = []
+        try:
+            settings.set_value("recent_cars", [])
+        except OSError:
+            pass
+        self.footer_status.setText("Historial de coches recientes borrado")
+
+    def _open_car_by_folder(self, folder: str) -> None:
+        car = next((item for item in self._extra_cars + self._cars if str(item.folder) == folder), None)
+        if car is None:
+            return
+        key = (car.name, car.folder)
+        if key not in self._visible_car_keys:
+            self.search.clear()
+            self.favorite_filter.setChecked(False)
+            self.editable_filter.setChecked(False)
+            self._apply_filter()
+        if key in self._visible_car_keys:
+            self.car_list.setCurrentRow(self._visible_car_keys.index(key))
+
+    def _restore_last_tab(self) -> None:
+        index = settings.get("last_tab")
+        if isinstance(index, int) and not isinstance(index, bool) and self.tabs.isTabEnabled(index):
+            self.tabs.setCurrentIndex(index)
+
     def _on_car_selected(self, row: int) -> None:
         if row < 0 or row >= len(self._visible_car_keys):
+            return
+        if self._load_thread is not None and self._load_thread.isRunning():
+            # Mientras se prepara un coche no se cambia de coche: la lista conserva el foco
+            # y vuelve a mostrar el coche que ya esta cargado.
+            self.footer_status.setText("Espera: ya se está preparando otro coche…")
+            self._reselect(self._source)
             return
         name, folder = self._visible_car_keys[row]
         source = next((car for car in self._extra_cars + self._cars if car.name == name and car.folder == folder), None)
@@ -1176,8 +1787,108 @@ class MainWindow(QMainWindow):
         if self._car is not None and self._car.changed and not self._confirm_discard():
             self._reselect(self._source)
             return
-        data = car_data.CarData.from_car(source) if source.editable else None
-        self._load_car(source, data)
+        try:
+            settings.set_value("last_car", str(source.folder))
+        except OSError:
+            pass
+        self._car_request += 1
+        if acd.needs_unpack(Path(source.folder)):
+            # QuickBMS puede tardar minutos: se ejecuta fuera del hilo de la interfaz
+            self._start_car_unpack(self._car_request, source)
+            return
+        try:
+            data = car_data.CarData.from_car(source) if source.editable else None
+            self._load_car(source, data)
+        except Exception as error:  # un coche con datos malformados no debe cerrar la aplicacion
+            self._show_car_load_error(source, error)
+            return
+        self._finish_car_selection(source)
+
+    def _finish_car_selection(self, source: ac_scanner.Car) -> None:
+        self._remember_recent(source)
+        self._refresh_home()
+        if self._sort_mode == "recent":
+            self._apply_filter()
+        self._update_dirty_marker()
+
+    def _set_car_busy(self, busy: bool) -> None:
+        """Bloquea lista, pestañas y recarga mientras un coche se desempaqueta."""
+        self.tabs.setEnabled(not busy)
+        if hasattr(self, "reload_button"):
+            self.reload_button.setEnabled(not busy)
+
+    def _start_car_unpack(self, token: int, source: ac_scanner.Car) -> None:
+        if self._load_thread is not None and self._load_thread.isRunning():
+            self.footer_status.setText("Espera: ya se está preparando otro coche…")
+            return
+        self.footer_status.setText(f"Desempaquetando data.acd de {source.ui_name}… (puede tardar unos minutos)")
+        self._set_car_busy(True)
+        thread = QThread(self)
+        worker = _CarLoadWorker(token, source)
+        worker.moveToThread(thread)
+        self._load_worker = worker
+        thread.started.connect(worker.run)
+        worker.completed.connect(self._finish_car_unpack)
+        worker.failed.connect(self._fail_car_unpack)
+        worker.completed.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.completed.connect(worker.deleteLater)
+        worker.failed.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda loading=thread: self._clear_load_thread(loading))
+        self._load_thread = thread
+        thread.start()
+
+    @pyqtSlot(int, object, object, object, str)
+    def _finish_car_unpack(self, token: int, source: ac_scanner.Car, fresh: ac_scanner.Car,
+                           data, message: str) -> None:
+        self._set_car_busy(False)
+        self._replace_cached_car(source, fresh)
+        if message:
+            self.footer_status.setText(message)
+        if token != self._car_request:
+            return  # el usuario ya eligió otro coche: solo se actualiza la caché
+        self._apply_filter()
+        self._reselect(fresh)
+        try:
+            self._load_car(fresh, data)
+        except Exception as error:  # noqa: BLE001 - un coche malformado no cierra la aplicacion
+            self._show_car_load_error(fresh, error)
+            return
+        self._finish_car_selection(fresh)
+
+    @pyqtSlot(int, object, str)
+    def _fail_car_unpack(self, token: int, source: ac_scanner.Car, message: str) -> None:
+        self._set_car_busy(False)
+        if token != self._car_request:
+            return
+        self._show_car_load_error(source, RuntimeError(message))
+
+    def _replace_cached_car(self, source: ac_scanner.Car, fresh: ac_scanner.Car) -> None:
+        if fresh is source:
+            return
+        for cars in (self._cars, self._extra_cars):
+            for index, car in enumerate(cars):
+                if car.folder == source.folder and car.name == source.name:
+                    cars[index] = fresh
+
+    def _show_car_load_error(self, source: ac_scanner.Car, error: Exception) -> None:
+        """Deja la aplicacion usable tras un fallo al cargar un coche."""
+        try:
+            # Restablece las pestañas a estado vacio: no pueden quedar datos a medio cargar.
+            self._load_car(None, None)
+        except Exception:  # noqa: BLE001 - recuperacion; el aviso de abajo informa al usuario
+            pass
+        self._source = None
+        self._car = None
+        self._update_car_header()
+        self._refresh_footer()
+        self.banner.setText(
+            f"No se pudo cargar '{source.ui_name}': {error}. Revisa los archivos del coche "
+            "o restaura data.acd.bak si lo has modificado."
+        )
+        self.banner.show()
+        self.footer_status.setText(f"Error al cargar {source.ui_name}")
 
     def _reselect(self, source: ac_scanner.Car | None) -> None:
         if source is None:
@@ -1196,10 +1907,12 @@ class MainWindow(QMainWindow):
         self._car = data
         for tab in (self.motor_tab, self.gear_tab, self.chassis_tab, self.aids_tab, self.advanced_tab):
             tab.load(data)
+        self.lab_tab.load(data)
+        self.upgrade_tab.load(source)
         self.info_tab.load(data, source.status if source else "", self._meta(source))
 
         self.tabs.setTabEnabled(0, True)
-        for index in (1, 2, 3, 5, 6):
+        for index in (1, 2, 3, 5, 6, 7, 9):
             self.tabs.setTabEnabled(index, data is not None)
             button = self.nav_group.button(index)
             if button is not None:
@@ -1240,6 +1953,7 @@ class MainWindow(QMainWindow):
         return self._meta_cache[source.folder]
 
     def _update_car_header(self) -> None:
+        self._update_nav_status(self._source)
         widgets.clear_layout(self.pill_slot)
         source = self._source
         if source is None:
@@ -1358,6 +2072,7 @@ class MainWindow(QMainWindow):
             self._car.restore_setup(self._history[index])
             for tab in (self.motor_tab, self.gear_tab, self.chassis_tab, self.aids_tab, self.advanced_tab):
                 tab.load(self._car)
+            self.lab_tab.load(self._car)
             self.dashboard_tab.load(self._car)
             self.info_tab.load(self._car, self._source.status if self._source else "", self._meta(self._source))
             self._update_car_header()
@@ -1389,6 +2104,9 @@ class MainWindow(QMainWindow):
             pass
         self._update_car_header()
         self._apply_filter()
+        self.lab_tab.set_library(self._cars, self._meta_cache, self._favorites)
+        self._refresh_home()
+        self._update_nav_status(self._source)
 
     def _preset_menu(self) -> None:
         if self._car is None:
@@ -1561,13 +2279,6 @@ class MainWindow(QMainWindow):
         guide.setCheckable(True)
         guide.setChecked(self._show_guide_on_start)
         guide.toggled.connect(lambda enabled: self._set_startup_option("show_guide", enabled))
-        menu.addSeparator()
-        updates_option = menu.addAction("Comprobar actualizaciones al iniciar")
-        updates_option.setCheckable(True)
-        updates_option.setChecked(bool(settings.get("check_updates", True)))
-        updates_option.toggled.connect(self._set_update_check)
-        check_now = menu.addAction("Buscar actualizaciones ahora")
-        check_now.triggered.connect(lambda: self._check_updates(force=True))
         button = self.sender()
         if isinstance(button, QPushButton):
             menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
@@ -1685,17 +2396,6 @@ class MainWindow(QMainWindow):
         label = "Guía de bienvenida" if key == "show_guide" else "Animación de carga"
         self.footer_status.setText(f"{label} al iniciar: {'activada' if enabled else 'desactivada'}")
 
-    def _set_update_check(self, enabled: bool) -> None:
-        try:
-            settings.set_value("check_updates", bool(enabled))
-        except OSError:
-            pass
-        if enabled:
-            self._check_updates(force=True)
-        else:
-            self.update_notification.hide()
-            self.footer_status.setText("Aviso de actualizaciones desactivado")
-
     def _set_ui_scale(self, factor: float) -> None:
         if factor not in (0.9, 1.0, 1.1, 1.2):
             return
@@ -1710,6 +2410,8 @@ class MainWindow(QMainWindow):
         self.footer_status.setText(f"Tamaño de interfaz aplicado: {factor * 100:.0f}%")
 
     def _refresh_footer(self) -> None:
+        self._refresh_window_title()
+        self._update_dirty_marker()
         car = self._car
         if car is None:
             self.footer_status.setText(
@@ -1737,21 +2439,48 @@ class MainWindow(QMainWindow):
         car = self._car
         if car is None or not car.changed:
             return
+        baseline = self._history[0] if self._history else None
         try:
             saved = car.save()
         except (OSError, ValueError) as error:
             QMessageBox.critical(self, "No se pudo guardar", str(error))
             return
+        self._record_changes(baseline, car)
         self.info_tab.load(car, self._source.status if self._source else "", self._meta(self._source))
         for tab in (self.motor_tab, self.gear_tab, self.chassis_tab, self.aids_tab, self.advanced_tab):
             tab.load(car)
+        self.lab_tab.load(car)
         self._update_car_header()
         self.dashboard_tab.load(car)
         self._refresh_footer()
         self._reset_history()
         self.footer_status.setText(
-            "Guardado: " + ", ".join(saved) + "   ·   respaldo completo y .bak conservados"
+            f"Guardado a las {time.strftime('%H:%M')}: " + ", ".join(saved)
+            + "   ·   respaldo completo y .bak conservados"
         )
+
+    def _record_changes(self, baseline: dict | None, car) -> None:
+        """Anota en el historial que parametros han cambiado de la version de partida."""
+        if not isinstance(baseline, dict):
+            return
+        try:
+            changes = garage.changes_between(baseline, car.setup_snapshot())
+            if changes:
+                garage.record_changes(car.name, changes)
+        except (garage.GarageError, OSError, ValueError):
+            pass
+
+    def _reload_all_views(self) -> None:
+        """Recarga todas las vistas tras restaurar un setup o un fichero suelto."""
+        car = self._car
+        if car is None:
+            return
+        for tab in (self.motor_tab, self.gear_tab, self.chassis_tab, self.aids_tab, self.advanced_tab, self.lab_tab):
+            tab.load(car)
+        self.dashboard_tab.load(car)
+        self.info_tab.load(car, self._source.status if self._source else "", self._meta(self._source))
+        self._update_car_header()
+        self._on_editor_changed()
 
     def _reload_current(self) -> None:
         if self._source is None or self._car is None:
@@ -1760,6 +2489,49 @@ class MainWindow(QMainWindow):
             return
         self._load_car(self._source, car_data.CarData.from_car(self._source))
         self.footer_status.setText(f"{self._source.ui_name} · recargado desde disco")
+
+    def _run_car_repair(self) -> None:
+        """Revisa car.ini/aero.ini; la reparacion exige confirmacion y deja copias .bak."""
+        if self._source is None or self._car is None:
+            return
+        if self._car.changed and not self._confirm_discard():
+            return
+        try:
+            issues = car_repair.diagnose(self._source.folder)
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "No se pudo revisar el coche", str(error))
+            return
+        if not issues:
+            QMessageBox.information(self, "Datos correctos", "No se ha encontrado ningún problema en los datos de este coche.")
+            return
+        listing = "\n".join(f"• {issue.title}: {issue.detail}" for issue in issues)
+        answer = QMessageBox.question(
+            self,
+            "Reparar datos del coche",
+            f"Se han encontrado estos problemas:\n\n{listing}\n\n"
+            "Antes de cambiar nada se guardará una copia .bak de cada archivo afectado. ¿Reparar ahora?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            result = car_repair.repair(self._source.folder, confirmed=True)
+        except (OSError, ValueError, PermissionError) as error:
+            QMessageBox.critical(self, "No se pudo reparar el coche", str(error))
+            return
+        try:
+            reloaded = car_data.CarData.from_car(self._source) if self._source.editable else None
+        except Exception as error:  # datos reparados pero ilegibles: no cerrar la app
+            QMessageBox.critical(self, "No se pudo recargar el coche", str(error))
+            self._load_car(None, None)
+            return
+        self._load_car(self._source, reloaded)
+        self._refresh_home()
+        self._update_dirty_marker()
+        changed = ", ".join(result.changed_files) or "ninguno"
+        remaining = f"\nAvisos que quedan sin reparar: {len(result.remaining)}." if result.remaining else ""
+        QMessageBox.information(self, "Reparación completada", f"Archivos modificados: {changed}.{remaining}")
 
     def _confirm_discard(self) -> bool:
         """True si se puede continuar (guardando o descartando)."""
@@ -1802,6 +2574,7 @@ class MainWindow(QMainWindow):
             settings.set_value("ac_root", str(candidate))
         except OSError:
             pass
+        self._refresh_tracks()
         self._reload_cars()
 
     def _open_data_folder(self) -> None:
@@ -1839,6 +2612,7 @@ class MainWindow(QMainWindow):
                 "window_geometry": bytes(self.saveGeometry().toBase64()).decode("ascii"),
                 "window_state": bytes(self.saveState().toBase64()).decode("ascii"),
                 "splitter_sizes": self._splitter.sizes(),
+                "last_tab": self.tabs.currentIndex(),
             })
             settings.save(saved_settings)
         except OSError:
@@ -1847,18 +2621,12 @@ class MainWindow(QMainWindow):
             self.hide()
             event.ignore()
             return
-        thread = self._scan_thread
-        if thread is not None and thread.isRunning():
+        busy = any(t is not None and t.isRunning() for t in (self._scan_thread, self._load_thread))
+        if busy:
             self._exit_requested = True
             self.hide()
             event.ignore()
             return
-        for background in (self._update_thread, self._download_thread):
-            if background is not None and background.isRunning():
-                self._exit_requested = True
-                self.hide()
-                event.ignore()
-                return
         if self._tray is not None:
             self._tray.hide()
         app = QApplication.instance()
@@ -1923,7 +2691,11 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationVersion(__version__)
     app.setWindowIcon(app_icon())
     theme.apply(app)
-    window = MainWindow(ac_root=args.ac_root, background=args.background)
+    # La membresía se comprueba en el servidor antes de abrir ninguna función protegida.
+    monitor = AccessMonitor(app)
+    if not AccessGate(monitor).run():
+        return 0
+    window = MainWindow(ac_root=args.ac_root, background=args.background, access_monitor=monitor)
     if args.background and window._tray is not None:
         window.hide()
     elif args.background:
